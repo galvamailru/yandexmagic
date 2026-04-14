@@ -342,3 +342,59 @@ def list_all_campaign_modes(db: Session, schema: str) -> list[tuple[UUID, str, i
         text(f'SELECT id, mode, yandex_campaign_id FROM "{schema}".campaigns')
     ).fetchall()
     return [(UUID(str(r[0])), str(r[1]), int(r[2])) for r in rows]
+
+
+def recommendations_analytics(
+    db: Session,
+    schema: str,
+    *,
+    campaign_id: UUID | None = None,
+    status: str | None = None,
+    kind: str | None = None,
+    search: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    _set_path(db, schema)
+    q = f'''
+SELECT
+  r.id,
+  r.campaign_id,
+  c.name AS campaign_name,
+  r.kind,
+  r.title,
+  r.body,
+  r.status,
+  r.created_at
+FROM "{schema}".recommendations r
+LEFT JOIN "{schema}".campaigns c ON c.id = r.campaign_id
+WHERE 1=1
+'''
+    params: dict[str, Any] = {"lim": limit}
+    if campaign_id:
+        q += " AND r.campaign_id = :campaign_id"
+        params["campaign_id"] = str(campaign_id)
+    if status:
+        q += " AND r.status = :status"
+        params["status"] = status
+    if kind:
+        q += " AND r.kind = :kind"
+        params["kind"] = kind
+    if search:
+        q += " AND (r.title ILIKE :s OR r.body ILIKE :s OR COALESCE(c.name,'') ILIKE :s)"
+        params["s"] = f"%{search}%"
+    q += " ORDER BY r.created_at DESC LIMIT :lim"
+
+    rows = db.execute(text(q), params).fetchall()
+    return [
+        {
+            "id": str(r[0]),
+            "campaign_id": str(r[1]) if r[1] else None,
+            "campaign_name": r[2],
+            "kind": r[3],
+            "title": r[4],
+            "body": r[5],
+            "status": r[6],
+            "created_at": r[7].isoformat() if r[7] else None,
+        }
+        for r in rows
+    ]

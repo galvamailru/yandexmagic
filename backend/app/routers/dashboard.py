@@ -7,7 +7,7 @@ from app.database import get_db
 from app.deps import require_tenant_access
 from app.models.public import Tenant
 from app.repositories import tenant_queries as tq
-from app.schemas.common import DashboardSummary, RecommendationOut, SpendPoint
+from app.schemas.common import CampaignOut, DashboardSummary, RecommendationAnalyticsOut, RecommendationOut, SpendPoint
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -42,6 +42,54 @@ def recent_recs(
         RecommendationOut(
             id=r["id"],  # type: ignore[arg-type]
             campaign_id=r["campaign_id"],  # type: ignore[arg-type]
+            kind=r["kind"],
+            title=r["title"],
+            body=r["body"],
+            status=r["status"],
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]
+
+
+@router.get("/campaigns-options", response_model=list[CampaignOut])
+def campaign_options(
+    db: Annotated[Session, Depends(get_db)],
+    tenant: Annotated[Tenant, Depends(require_tenant_access)],
+) -> list[CampaignOut]:
+    rows = tq.list_campaigns(db, tenant.schema_name)
+    return [CampaignOut(**r) for r in rows]  # type: ignore[arg-type]
+
+
+@router.get("/recommendations-analytics", response_model=list[RecommendationAnalyticsOut])
+def recommendations_analytics(
+    db: Annotated[Session, Depends(get_db)],
+    tenant: Annotated[Tenant, Depends(require_tenant_access)],
+    campaign_id: str | None = None,
+    status: str | None = None,
+    kind: str | None = None,
+    search: str | None = None,
+    limit: int = 100,
+) -> list[RecommendationAnalyticsOut]:
+    cid = None
+    if campaign_id:
+        from uuid import UUID
+
+        cid = UUID(campaign_id)
+    rows = tq.recommendations_analytics(
+        db,
+        tenant.schema_name,
+        campaign_id=cid,
+        status=status,
+        kind=kind,
+        search=search,
+        limit=limit,
+    )
+    return [
+        RecommendationAnalyticsOut(
+            id=r["id"],  # type: ignore[arg-type]
+            campaign_id=r["campaign_id"],  # type: ignore[arg-type]
+            campaign_name=r["campaign_name"],
             kind=r["kind"],
             title=r["title"],
             body=r["body"],

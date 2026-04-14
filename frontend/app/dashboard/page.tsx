@@ -12,8 +12,10 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Shell } from "@/components/shell";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { apiFetch, getToken } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -116,7 +118,12 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Последние рекомендации AI</CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>Последние рекомендации AI</CardTitle>
+              <Button asChild variant="outline" size="sm">
+                <Link href="/recommendations">Открыть аналитику</Link>
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {recs.length === 0 && <p className="text-sm text-[hsl(var(--muted-foreground))]">Пока пусто</p>}
@@ -124,7 +131,9 @@ export default function DashboardPage() {
               <div key={r.id} className="border border-[hsl(var(--border))] rounded-lg p-3">
                 <div className="font-medium">{r.title}</div>
                 <div className="text-sm text-[hsl(var(--muted-foreground))]">{r.body}</div>
-                <div className="text-xs mt-1 text-[hsl(var(--muted-foreground))]">{r.status}</div>
+                <div className="text-xs mt-1 text-[hsl(var(--muted-foreground))]">
+                  {r.status} {r.created_at ? `• ${new Date(r.created_at).toLocaleString("ru-RU")}` : ""}
+                </div>
               </div>
             ))}
           </CardContent>

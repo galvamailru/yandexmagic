@@ -47,6 +47,17 @@ class RecommendationOut(BaseModel):
     created_at: str | None
 
 
+class RecommendationAnalyticsOut(BaseModel):
+    id: UUID
+    campaign_id: UUID | None
+    campaign_name: str | None
+    kind: str
+    title: str
+    body: str
+    status: str
+    created_at: str | None
+
+
 class CampaignOut(BaseModel):
     id: UUID
     yandex_campaign_id: int

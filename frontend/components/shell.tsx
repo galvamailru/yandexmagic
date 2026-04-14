@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Megaphone, Sparkles, Shield, LogOut } from "lucide-react";
+import { LayoutDashboard, Megaphone, Sparkles, Shield, LogOut, ListFilter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const nav = [
   { href: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
   { href: "/campaigns", label: "Кампании", icon: Megaphone },
+  { href: "/recommendations", label: "Рекомендации", icon: ListFilter },
   { href: "/wizard", label: "Новая кампания", icon: Sparkles },
 ];
 
