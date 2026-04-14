@@ -125,3 +125,29 @@ class AgentLogOut(BaseModel):
     message: str
     details: dict[str, Any]
     created_at: str | None
+
+
+class CampaignStatsOut(BaseModel):
+    date: str
+    cost_rub: float
+    clicks: int
+    impressions: int
+    ctr: float
+    avg_cpc_rub: float | None
+
+
+class CampaignRecommendationOut(BaseModel):
+    id: UUID
+    kind: str
+    title: str
+    body: str
+    payload: dict[str, Any]
+    status: str
+    created_at: str | None
+
+
+class CampaignDetailOut(BaseModel):
+    campaign: CampaignOut
+    stats: list[CampaignStatsOut]
+    recommendations: list[CampaignRecommendationOut]
+    logs: list[AgentLogOut]

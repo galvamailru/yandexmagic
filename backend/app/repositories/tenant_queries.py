@@ -256,6 +256,36 @@ ORDER BY created_at DESC
     return out
 
 
+def campaign_recommendations(db: Session, schema: str, campaign_uuid: UUID, limit: int = 100) -> list[dict[str, Any]]:
+    _set_path(db, schema)
+    rows = db.execute(
+        text(
+            f'''
+SELECT id, kind, title, body, payload, status, created_at
+FROM "{schema}".recommendations
+WHERE campaign_id = :cid
+ORDER BY created_at DESC
+LIMIT :lim
+'''
+        ),
+        {"cid": str(campaign_uuid), "lim": limit},
+    ).fetchall()
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "id": str(r[0]),
+                "kind": r[1],
+                "title": r[2],
+                "body": r[3],
+                "payload": json.loads(r[4] or "{}"),
+                "status": r[5],
+                "created_at": r[6].isoformat() if r[6] else None,
+            }
+        )
+    return out
+
+
 def mark_recommendations_applied(db: Session, schema: str, ids: list[UUID]) -> None:
     if not ids:
         return
@@ -342,6 +372,33 @@ def list_all_campaign_modes(db: Session, schema: str) -> list[tuple[UUID, str, i
         text(f'SELECT id, mode, yandex_campaign_id FROM "{schema}".campaigns')
     ).fetchall()
     return [(UUID(str(r[0])), str(r[1]), int(r[2])) for r in rows]
+
+
+def campaign_daily_stats(db: Session, schema: str, campaign_uuid: UUID, limit: int = 30) -> list[dict[str, Any]]:
+    _set_path(db, schema)
+    rows = db.execute(
+        text(
+            f'''
+SELECT stat_date::text, cost_rub, clicks, impressions, ctr, avg_cpc_rub
+FROM "{schema}".daily_stats
+WHERE campaign_id = :cid
+ORDER BY stat_date DESC
+LIMIT :lim
+'''
+        ),
+        {"cid": str(campaign_uuid), "lim": limit},
+    ).fetchall()
+    return [
+        {
+            "date": r[0],
+            "cost_rub": float(r[1] or 0),
+            "clicks": int(r[2] or 0),
+            "impressions": int(r[3] or 0),
+            "ctr": float(r[4] or 0),
+            "avg_cpc_rub": float(r[5]) if r[5] is not None else None,
+        }
+        for r in rows
+    ]
 
 
 def recommendations_analytics(

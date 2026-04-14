@@ -8,7 +8,14 @@ from app.database import get_db
 from app.deps import get_current_user, require_tenant_access
 from app.models.public import Tenant, User
 from app.repositories import tenant_queries as tq
-from app.schemas.common import AgentLogOut, CampaignModeBody, CampaignOut
+from app.schemas.common import (
+    AgentLogOut,
+    CampaignDetailOut,
+    CampaignModeBody,
+    CampaignOut,
+    CampaignRecommendationOut,
+    CampaignStatsOut,
+)
 from app.services import sync_service
 from app.services import yandex_direct
 from app.services.openai_service import generate_recommendations
@@ -46,6 +53,47 @@ def set_mode(
     c2 = tq.get_campaign_by_id(db, tenant.schema_name, campaign_id)
     assert c2
     return CampaignOut(**c2)
+
+
+@router.get("/{campaign_id}", response_model=CampaignDetailOut)
+def campaign_detail(
+    campaign_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    tenant: Annotated[Tenant, Depends(require_tenant_access)],
+) -> CampaignDetailOut:
+    c = tq.get_campaign_by_id(db, tenant.schema_name, campaign_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    stats = tq.campaign_daily_stats(db, tenant.schema_name, campaign_id, limit=30)
+    recs = tq.campaign_recommendations(db, tenant.schema_name, campaign_id, limit=100)
+    logs = tq.list_agent_logs(db, tenant.schema_name, campaign_id, limit=100)
+    return CampaignDetailOut(
+        campaign=CampaignOut(**c),
+        stats=[CampaignStatsOut(**s) for s in stats],
+        recommendations=[
+            CampaignRecommendationOut(
+                id=r["id"],  # type: ignore[arg-type]
+                kind=r["kind"],
+                title=r["title"],
+                body=r["body"],
+                payload=r["payload"],
+                status=r["status"],
+                created_at=r["created_at"],
+            )
+            for r in recs
+        ],
+        logs=[
+            AgentLogOut(
+                id=UUID(r["id"]),
+                campaign_id=UUID(r["campaign_id"]) if r.get("campaign_id") else None,
+                level=r["level"],
+                message=r["message"],
+                details=r["details"],
+                created_at=r["created_at"],
+            )
+            for r in logs
+        ],
+    )
 
 
 @router.post("/{campaign_id}/recommendations/generate")

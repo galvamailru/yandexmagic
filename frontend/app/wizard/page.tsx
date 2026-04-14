@@ -14,6 +14,8 @@ export default function WizardPage() {
   const [step, setStep] = useState(1);
   const [me, setMe] = useState<{ is_platform_admin: boolean } | null>(null);
   const [form, setForm] = useState({ site_url: "", budget_rub: 5000, geo: "Москва", goal: "Лиды" });
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [groups, setGroups] = useState<string[][]>([]);
   const [ads, setAds] = useState<Record<string, string>[]>([]);
   const [risk, setRisk] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
@@ -56,12 +58,17 @@ export default function WizardPage() {
       const phase1 = window.setTimeout(() => setParseStage("Собираем ключи через Вордстат..."), 1400);
       const phase2 = window.setTimeout(() => setParseStage("Группируем ключи и генерируем объявления AI..."), 3200);
 
-      const res = await apiFetch<{ ads: Record<string, string>[] }>("/api/wizard/step2", { method: "POST" });
+      const res = await apiFetch<{ keywords: string[]; groups: string[][]; ads: Record<string, string>[] }>(
+        "/api/wizard/step2",
+        { method: "POST" }
+      );
       window.clearTimeout(phase1);
       window.clearTimeout(phase2);
 
       setParseProgress(100);
       setParseStage("Готово");
+      setKeywords(res.keywords || []);
+      setGroups(res.groups || []);
       setAds(res.ads || []);
       setStep(3);
       toast.success("Ключи и объявления готовы");
@@ -159,6 +166,33 @@ export default function WizardPage() {
               <CardTitle>Шаг 3 — редактирование объявлений</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Ключевые слова</div>
+                <div className="flex flex-wrap gap-2">
+                  {keywords.map((k, i) => (
+                    <span key={`${k}-${i}`} className="text-xs rounded-full border px-2 py-1 bg-slate-50">
+                      {k}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Группы ключей</div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  {groups.map((g, gi) => (
+                    <div key={gi} className="rounded-md border p-2 bg-white">
+                      <div className="text-xs text-[hsl(var(--muted-foreground))] mb-1">Группа {gi + 1}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {g.map((item, ii) => (
+                          <span key={`${item}-${ii}`} className="text-xs rounded-full border px-2 py-0.5">{item}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {ads.map((a, i) => (
                 <div key={i} className="grid gap-2 border rounded-lg p-3">
                   <label className="text-sm font-medium">Заголовок 1</label>

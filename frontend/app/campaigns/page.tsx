@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, Lightbulb, Bot, Filter } from "lucide-react";
 import { toast } from "sonner";
@@ -161,6 +162,9 @@ export default function CampaignsPage() {
                       </div>
                     </td>
                     <td className="py-3 space-x-2 whitespace-nowrap">
+                      <Button size="sm" variant="outline" asChild>
+                        <Link href={`/campaigns/${c.id}`}>Открыть</Link>
+                      </Button>
                       <Button size="sm" variant="outline" onClick={() => genRec(c.id)}>
                         Рекомендации
                       </Button>

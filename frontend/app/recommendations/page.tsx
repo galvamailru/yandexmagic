@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { apiFetch, getToken } from "@/lib/api";
+import { kindBadgeClass, kindLabel, statusBadgeClass, statusLabel } from "@/lib/recommendation-format";
 import { toast } from "sonner";
 
 type Campaign = { id: string; name: string };
@@ -20,6 +21,28 @@ type Rec = {
   status: string;
   created_at: string | null;
 };
+
+type ParsedRec = {
+  kind?: string;
+  title?: string;
+  body?: string;
+  payload?: Record<string, unknown>;
+};
+
+function extractStructuredRecommendations(rawBody: string): ParsedRec[] {
+  try {
+    const parsed = JSON.parse(rawBody);
+    if (Array.isArray(parsed)) {
+      return parsed as ParsedRec[];
+    }
+    if (parsed && Array.isArray(parsed.recommendations)) {
+      return parsed.recommendations as ParsedRec[];
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
 
 export default function RecommendationsPage() {
   const router = useRouter();
@@ -109,13 +132,15 @@ export default function RecommendationsPage() {
             </select>
             <select className="h-10 rounded-md border px-3" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">Все статусы</option>
-              <option value="pending">pending</option>
-              <option value="applied">applied</option>
+              <option value="pending">Ожидает применения</option>
+              <option value="applied">Применено</option>
             </select>
             <select className="h-10 rounded-md border px-3" value={kind} onChange={(e) => setKind(e.target.value)}>
               <option value="">Все типы</option>
-              <option value="keyword">keyword</option>
-              <option value="general">general</option>
+              <option value="keyword">Ключевая фраза</option>
+              <option value="general">Общий вывод</option>
+              <option value="warning">Риск</option>
+              <option value="success">Эффективно</option>
             </select>
             <Input placeholder="Поиск по выводу/рекомендации" value={search} onChange={(e) => setSearch(e.target.value)} />
             <Button onClick={applyFilters} disabled={loading}>{loading ? "Обновляем..." : "Применить"}</Button>
@@ -139,11 +164,27 @@ export default function RecommendationsPage() {
                 <div className="text-sm">
                   <span className="font-medium">Компания:</span> {r.campaign_name || "Не указана"}
                 </div>
-                <div className="text-sm">
-                  <span className="font-medium">Тип/статус:</span> {r.kind} / {r.status}
+                <div className="flex items-center gap-2">
+                  <span className={kindBadgeClass(r.kind)}>{kindLabel(r.kind)}</span>
+                  <span className={statusBadgeClass(r.status)}>{statusLabel(r.status)}</span>
                 </div>
                 <div className="text-sm leading-6">
-                  <span className="font-medium">Вывод агента и рекомендация:</span> {r.body}
+                  <span className="font-medium">Вывод агента и рекомендация:</span>
+                  {extractStructuredRecommendations(r.body).length > 0 ? (
+                    <div className="mt-2 space-y-2">
+                      {extractStructuredRecommendations(r.body).map((sr, idx) => (
+                        <div key={idx} className="rounded-md border bg-slate-50 p-3">
+                          <div className="font-medium">{sr.title || "Рекомендация"}</div>
+                          <div className="mt-1">
+                            <span className={kindBadgeClass(sr.kind || "general")}>{kindLabel(sr.kind || "general")}</span>
+                          </div>
+                          <div className="mt-1 text-sm">{sr.body || ""}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span> {r.body}</span>
+                  )}
                 </div>
               </div>
             ))}
