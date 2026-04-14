@@ -312,15 +312,30 @@ export default function CampaignDetailPage() {
                 {settings && (
                   <>
                     <div className="grid md:grid-cols-3 gap-3">
-                      <div><div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]">CTR низкий порог</div><Input type="number" step="0.1" value={settings.ctr_low_threshold} onChange={(e) => setSettings({ ...settings, ctr_low_threshold: Number(e.target.value) })} /></div>
-                      <div><div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]">CTR высокий порог</div><Input type="number" step="0.1" value={settings.ctr_high_threshold} onChange={(e) => setSettings({ ...settings, ctr_high_threshold: Number(e.target.value) })} /></div>
-                      <div><div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]">Порог расхода, ₽</div><Input type="number" step="1" value={settings.cost_threshold_rub} onChange={(e) => setSettings({ ...settings, cost_threshold_rub: Number(e.target.value) })} /></div>
-                      <div><div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]">Коэфф. повышения ставки</div><Input type="number" step="0.01" value={settings.bid_up_factor} onChange={(e) => setSettings({ ...settings, bid_up_factor: Number(e.target.value) })} /></div>
-                      <div><div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]">Лимит изменений/цикл</div><Input type="number" step="1" value={settings.max_changes_per_cycle} onChange={(e) => setSettings({ ...settings, max_changes_per_cycle: Number(e.target.value) })} /></div>
+                      <div>
+                        <div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]" title="Если CTR ниже этого значения и расход высокий, агент может приостанавливать ключ.">CTR низкий порог (i)</div>
+                        <Input type="number" step="0.1" value={settings.ctr_low_threshold} onChange={(e) => setSettings({ ...settings, ctr_low_threshold: Number(e.target.value) })} />
+                      </div>
+                      <div>
+                        <div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]" title="Если CTR выше этого значения, агент может повышать ставку.">CTR высокий порог (i)</div>
+                        <Input type="number" step="0.1" value={settings.ctr_high_threshold} onChange={(e) => setSettings({ ...settings, ctr_high_threshold: Number(e.target.value) })} />
+                      </div>
+                      <div>
+                        <div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]" title="Минимальный расход, после которого правило низкого CTR считается значимым.">Порог расхода, ₽ (i)</div>
+                        <Input type="number" step="1" value={settings.cost_threshold_rub} onChange={(e) => setSettings({ ...settings, cost_threshold_rub: Number(e.target.value) })} />
+                      </div>
+                      <div>
+                        <div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]" title="Множитель увеличения ставки, например 1.10 означает +10%.">Коэфф. повышения ставки (i)</div>
+                        <Input type="number" step="0.01" value={settings.bid_up_factor} onChange={(e) => setSettings({ ...settings, bid_up_factor: Number(e.target.value) })} />
+                      </div>
+                      <div>
+                        <div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]" title="Ограничивает число изменений за один цикл агента.">Лимит изменений/цикл (i)</div>
+                        <Input type="number" step="1" value={settings.max_changes_per_cycle} onChange={(e) => setSettings({ ...settings, max_changes_per_cycle: Number(e.target.value) })} />
+                      </div>
                       <div className="flex items-end pb-2">
-                        <label className="text-sm flex items-center gap-2">
+                        <label className="text-sm flex items-center gap-2" title="В dry-run агент только показывает предполагаемые действия без применения изменений.">
                           <input type="checkbox" checked={settings.autopilot_dry_run} onChange={(e) => setSettings({ ...settings, autopilot_dry_run: e.target.checked })} />
-                          Dry-run автопилота
+                          Dry-run автопилота (i)
                         </label>
                       </div>
                     </div>

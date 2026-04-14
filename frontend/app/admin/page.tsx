@@ -25,7 +25,7 @@ export default function AdminPage() {
   const [sandboxName, setSandboxName] = useState("Sandbox tenant");
   const [roleForm, setRoleForm] = useState({ tenantId: "", userId: "", role: "manager" });
   const [savingRole, setSavingRole] = useState(false);
-  const [tab, setTab] = useState<"tenants" | "jobs" | "logs">("tenants");
+  const [tab, setTab] = useState<"tenants" | "jobs" | "logs" | "prompt">("tenants");
   const [tenantPage, setTenantPage] = useState(1);
   const [runPage, setRunPage] = useState(1);
   const [logPage, setLogPage] = useState(1);
@@ -157,6 +157,9 @@ export default function AdminPage() {
             <Button variant={tab === "logs" ? "default" : "outline"} size="sm" onClick={() => setTab("logs")}>
               Логи
             </Button>
+            <Button variant={tab === "prompt" ? "default" : "outline"} size="sm" onClick={() => setTab("prompt")}>
+              Промпт AI
+            </Button>
           </CardContent>
         </Card>
 
@@ -243,24 +246,26 @@ export default function AdminPage() {
           </Card>
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Промпт AI-агента (DeepSeek)</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <textarea
-              className="w-full min-h-52 rounded-md border border-[hsl(var(--border))] p-3 text-sm"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Введите system prompt для агента..."
-            />
-            <div className="flex gap-2">
-              <Button onClick={savePrompt} disabled={savingPrompt}>
-                {savingPrompt ? "Сохраняем..." : "Сохранить промпт"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        {tab === "prompt" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Промпт AI-агента (DeepSeek)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <textarea
+                className="w-full min-h-52 rounded-md border border-[hsl(var(--border))] p-3 text-sm"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Введите system prompt для агента..."
+              />
+              <div className="flex gap-2">
+                <Button onClick={savePrompt} disabled={savingPrompt}>
+                  {savingPrompt ? "Сохраняем..." : "Сохранить промпт"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {tab === "jobs" && (
         <Card>
