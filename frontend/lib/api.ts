@@ -1,4 +1,4 @@
-const API = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
