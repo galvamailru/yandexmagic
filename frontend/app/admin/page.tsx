@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch, getToken, setToken } from "@/lib/api";
+import { jobStatusBadgeClass, logLevelBadgeClass, tenantBlockedBadgeClass } from "@/lib/status-badges";
 
 type Tenant = { id: string; name: string; schema_name: string; is_blocked: boolean };
 type JobRun = { id: string; name: string; status: string; started_at: string | null; duration_ms: number | null; details: Record<string, unknown> };
@@ -186,7 +187,10 @@ export default function AdminPage() {
             {rows.map((t) => (
               <div key={t.id} className="flex items-center justify-between border rounded-lg p-3">
                 <div>
-                  <div className="font-medium">{t.name}</div>
+                  <div className="font-medium flex items-center gap-2">
+                    {t.name}
+                    <span className={tenantBlockedBadgeClass(t.is_blocked)}>{t.is_blocked ? "Заблокирован" : "Активен"}</span>
+                  </div>
                   <div className="text-xs text-[hsl(var(--muted-foreground))]">{t.schema_name}</div>
                 </div>
                 <div className="flex gap-2">
@@ -294,7 +298,7 @@ export default function AdminPage() {
                   <tr key={r.id} className="border-t">
                     <td>{r.started_at ? new Date(r.started_at).toLocaleString("ru-RU") : ""}</td>
                     <td>{r.name}</td>
-                    <td>{r.status}</td>
+                    <td><span className={jobStatusBadgeClass(r.status)}>{r.status}</span></td>
                     <td>{typeof r.duration_ms === "number" ? `${r.duration_ms} ms` : "—"}</td>
                     <td className="text-xs">{JSON.stringify(r.details)}</td>
                   </tr>
@@ -322,7 +326,7 @@ export default function AdminPage() {
               <div key={i} className="border-b border-[hsl(var(--border))] pb-2">
                 <div className="text-xs text-[hsl(var(--muted-foreground))]">{l.created_at}</div>
                 <div>
-                  [{l.level}] {l.message}
+                  <span className={logLevelBadgeClass(l.level)}>{l.level}</span> {l.message}
                 </div>
               </div>
             ))}

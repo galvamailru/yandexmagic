@@ -100,7 +100,7 @@ async def set_state(
     return CampaignOut(**updated)
 
 
-@router.get("/{campaign_id}", response_model=CampaignDetailOut)
+@router.get("/by-id/{campaign_id}", response_model=CampaignDetailOut)
 def campaign_detail(
     campaign_id: UUID,
     db: Annotated[Session, Depends(get_db)],
@@ -140,6 +140,8 @@ def campaign_detail(
             for r in logs
         ],
     )
+
+
 
 
 @router.post("/{campaign_id}/recommendations/generate")

@@ -9,6 +9,7 @@ import { apiFetch, getToken } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { kindBadgeClass, kindLabel, recommendationCardClass, statusBadgeClass, statusLabel } from "@/lib/recommendation-format";
+import { campaignStateBadgeClass, campaignStateLabel, logLevelBadgeClass } from "@/lib/status-badges";
 import { toast } from "sonner";
 
 type Detail = {
@@ -51,6 +52,7 @@ export default function CampaignDetailPage() {
   const [logs, setLogs] = useState<Detail["logs"]>([]);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [generatingRecs, setGeneratingRecs] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [undoing, setUndoing] = useState(false);
   const [tab, setTab] = useState<"settings" | "preview" | "history" | "recommendations" | "logs" | "keywords" | "ads">("settings");
@@ -79,7 +81,7 @@ export default function CampaignDetailPage() {
         const me = await apiFetch<{ is_platform_admin: boolean }>("/api/me");
         setIsAdmin(me.is_platform_admin);
         const [d, s] = await Promise.all([
-          apiFetch<Detail>(`/api/campaigns/${params.id}`),
+          apiFetch<Detail>(`/api/campaigns/by-id/${params.id}`),
           apiFetch<AgentSettings>("/api/campaigns/agent-settings"),
         ]);
         const [h, r, l, k, a] = await Promise.all([
@@ -162,13 +164,30 @@ export default function CampaignDetailPage() {
     }
   }
 
+  async function generateRecommendations() {
+    setGeneratingRecs(true);
+    try {
+      await apiFetch(`/api/campaigns/${params.id}/recommendations/generate`, { method: "POST" });
+      const r = await apiFetch<Paged<Detail["recommendations"][number]>>(
+        `/api/campaigns/${params.id}/recommendations?page=${recPage}&limit=${pageSize}`
+      );
+      setRecommendations(r.items);
+      setRecTotal(r.total);
+      toast.success("Рекомендации сгенерированы");
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setGeneratingRecs(false);
+    }
+  }
+
   async function undoLast() {
     setUndoing(true);
     try {
       await apiFetch(`/api/campaigns/${params.id}/undo-last`, { method: "POST" });
       toast.success("Последнее действие отменено");
       const [d, h] = await Promise.all([
-        apiFetch<Detail>(`/api/campaigns/${params.id}`),
+        apiFetch<Detail>(`/api/campaigns/by-id/${params.id}`),
         apiFetch<Paged<HistoryItem>>(`/api/campaigns/${params.id}/action-history?page=${historyPage}&limit=${pageSize}`),
       ]);
       setData(d);
@@ -189,10 +208,18 @@ export default function CampaignDetailPage() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-semibold">{data?.campaign.name || "Кампания"}</h1>
+            <h1 className="text-3xl font-semibold flex items-center gap-2">
+              {data?.campaign.name || "Кампания"}
+              {data?.campaign.state && (
+                <span className={campaignStateBadgeClass(data.campaign.state)}>{campaignStateLabel(data.campaign.state)}</span>
+              )}
+            </h1>
             <p className="text-[hsl(var(--muted-foreground))]">Детали и параметры кампании</p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={generateRecommendations} disabled={generatingRecs}>
+              {generatingRecs ? "Генерируем..." : "Рекомендации"}
+            </Button>
             {data?.campaign.state === "ON" ? (
               <Button variant="outline" onClick={() => setCampaignState("SUSPENDED")}>Пауза</Button>
             ) : (
@@ -268,7 +295,7 @@ export default function CampaignDetailPage() {
                     {keywords.map((k) => (
                       <tr key={k.id} className="border-t">
                         <td>{k.keyword}</td>
-                        <td>{k.state}</td>
+                        <td><span className={campaignStateBadgeClass(k.state)}>{campaignStateLabel(k.state)}</span></td>
                         <td>{k.bid_rub.toFixed(2)} ₽</td>
                         <td>{k.cost_rub.toFixed(2)} ₽</td>
                         <td>{k.ctr.toFixed(2)}%</td>
@@ -301,7 +328,7 @@ export default function CampaignDetailPage() {
                     {ads.map((a) => (
                       <tr key={a.id} className="border-t">
                         <td>{a.title}</td>
-                        <td>{a.state}</td>
+                        <td><span className={campaignStateBadgeClass(a.state)}>{campaignStateLabel(a.state)}</span></td>
                         <td>{a.cost_rub.toFixed(2)} ₽</td>
                         <td>{a.clicks}</td>
                         <td>{a.impressions}</td>
@@ -361,8 +388,9 @@ export default function CampaignDetailPage() {
               <CardContent className="space-y-2 text-sm">
                 {history.map((h) => (
                   <div key={h.id} className="border-b pb-2">
-                    <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                    <div className="text-xs text-[hsl(var(--muted-foreground))] flex items-center gap-2">
                       {h.created_at ? new Date(h.created_at).toLocaleString("ru-RU") : ""} • {h.action_type}
+                      <span className="inline-flex items-center rounded-full px-2 py-0.5 bg-slate-100 text-slate-700">{h.action_type}</span>
                     </div>
                     <div>До: {JSON.stringify(h.payload_before)}</div>
                     <div>После: {JSON.stringify(h.payload_after)}</div>
@@ -414,7 +442,10 @@ export default function CampaignDetailPage() {
                 {logs.map((l) => (
                   <div key={l.id} className="border-b pb-2">
                     <div className="text-xs text-[hsl(var(--muted-foreground))]">{l.created_at ? new Date(l.created_at).toLocaleString("ru-RU") : ""}</div>
-                    <div>[{l.level}] {l.message}</div>
+                    <div className="flex items-center gap-2">
+                      <span className={logLevelBadgeClass(l.level)}>{l.level}</span>
+                      <span>{l.message}</span>
+                    </div>
                   </div>
                 ))}
                 <div className="flex items-center justify-between pt-2">

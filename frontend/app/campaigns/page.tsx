@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, getToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { campaignStateBadgeClass, campaignStateLabel } from "@/lib/status-badges";
 
 type Camp = {
   id: string;
@@ -88,15 +89,6 @@ export default function CampaignsPage() {
     }
   }
 
-  async function genRec(id: string) {
-    try {
-      await apiFetch(`/api/campaigns/${id}/recommendations/generate`, { method: "POST" });
-      toast.success("Рекомендации сгенерированы");
-    } catch (e) {
-      toast.error(String(e));
-    }
-  }
-
   async function applyAll(id: string) {
     try {
       await apiFetch(`/api/campaigns/${id}/recommendations/apply-all`, { method: "POST" });
@@ -144,9 +136,30 @@ export default function CampaignsPage() {
               </thead>
               <tbody>
                 {filtered.map((c) => (
-                  <tr key={c.id} className="border-t border-[hsl(var(--border))]">
-                    <td className="py-3 font-medium">{c.name}</td>
-                    <td className="py-3">{c.state}</td>
+                  <tr
+                    key={c.id}
+                    className={cn(
+                      "border-t border-[hsl(var(--border))]",
+                      c.state === "ON" ? "bg-emerald-50/40" : c.state === "SUSPENDED" ? "bg-amber-50/40" : ""
+                    )}
+                  >
+                    <td className="py-3 font-medium">
+                      <div className="flex items-center gap-2">
+                        <span>{c.name}</span>
+                        <span className={campaignStateBadgeClass(c.state)}>{campaignStateLabel(c.state)}</span>
+                      </div>
+                    </td>
+                    <td className="py-3">
+                      {c.state === "ON" ? (
+                        <Button size="sm" variant="outline" onClick={() => setState(c.id, "SUSPENDED")}>
+                          Пауза
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => setState(c.id, "ON")}>
+                          Возобновить
+                        </Button>
+                      )}
+                    </td>
                     <td className="py-3">
                       <div className="flex flex-wrap gap-2">
                         {modes.map((m) => {
@@ -172,20 +185,8 @@ export default function CampaignsPage() {
                       </div>
                     </td>
                     <td className="py-3 space-x-2 whitespace-nowrap">
-                      {c.state === "ON" ? (
-                        <Button size="sm" variant="outline" onClick={() => setState(c.id, "SUSPENDED")}>
-                          Пауза
-                        </Button>
-                      ) : (
-                        <Button size="sm" variant="outline" onClick={() => setState(c.id, "ON")}>
-                          Возобновить
-                        </Button>
-                      )}
                       <Button size="sm" variant="outline" asChild>
                         <Link href={`/campaigns/${c.id}`}>Открыть</Link>
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => genRec(c.id)}>
-                        Рекомендации
                       </Button>
                       <Button size="sm" onClick={() => applyAll(c.id)}>
                         Применить всё
