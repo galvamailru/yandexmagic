@@ -47,11 +47,17 @@ async def _post_with_retry(url: str, token: str, body: dict[str, Any], timeout: 
 
 
 async def campaigns_get(token: str) -> list[dict[str, Any]]:
+    rows, _meta = await campaigns_get_with_meta(token)
+    return rows
+
+
+async def campaigns_get_with_meta(token: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if settings.YANDEX_MOCK:
-        return [
+        rows = [
             {"Id": 1001, "Name": "Демо: поиск", "State": "ON", "Status": "ACCEPTED"},
             {"Id": 1002, "Name": "Демо: РСЯ", "State": "SUSPENDED", "Status": "ACCEPTED"},
         ]
+        return rows, {"source": "mock", "http_status": 200, "count": len(rows)}
     body = {
         "method": "get",
         "params": {
@@ -60,10 +66,19 @@ async def campaigns_get(token: str) -> list[dict[str, Any]]:
         },
     }
     r = await _post_with_retry(f"{API}campaigns", token, body)
-    if not r or r.status_code >= 400:
-        return []
+    if not r:
+        return [], {"source": "api", "http_status": None, "count": 0, "error": "network_or_timeout"}
+    if r.status_code >= 400:
+        err: str | None = None
+        try:
+            payload = r.json()
+            err = json.dumps(payload, ensure_ascii=False)[:400]
+        except Exception:  # noqa: BLE001
+            err = (r.text or "")[:400]
+        return [], {"source": "api", "http_status": r.status_code, "count": 0, "error": err}
     data = r.json()
-    return data.get("result", {}).get("Campaigns", []) or []
+    rows = data.get("result", {}).get("Campaigns", []) or []
+    return rows, {"source": "api", "http_status": r.status_code, "count": len(rows)}
 
 
 async def reports_campaign_daily(token: str, campaign_ids: list[int], day_from: date, day_to: date) -> list[dict[str, Any]]:

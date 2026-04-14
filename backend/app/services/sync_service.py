@@ -8,14 +8,39 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.public import TenantYandexToken
+from app.config import get_settings
 from app.repositories import tenant_queries as tq
 from app.services import yandex_direct
 from app.services.crypto_service import decrypt_text, encrypt_text
 from app.services.yandex_oauth import refresh_access_token
 
+settings = get_settings()
+
 
 async def sync_campaigns_from_yandex(db: Session, tenant_schema: str, access_token: str) -> list[dict[str, Any]]:
-    rows = await yandex_direct.campaigns_get(access_token)
+    if not settings.YANDEX_MOCK:
+        # Cleanup stale demo rows created while mock mode was enabled.
+        tq.delete_mock_campaigns(db, tenant_schema)
+    rows, meta = await yandex_direct.campaigns_get_with_meta(access_token)
+    level = "info"
+    message = "Синхронизация кампаний из Yandex Direct выполнена"
+    if int(meta.get("count") or 0) == 0:
+        level = "warning"
+        message = "Синхронизация кампаний: пустой ответ или ошибка"
+    tq.insert_agent_log(
+        db,
+        tenant_schema,
+        None,
+        level,
+        message,
+        {
+            "source": meta.get("source"),
+            "http_status": meta.get("http_status"),
+            "count": meta.get("count"),
+            "error": meta.get("error"),
+            "mock_mode": settings.YANDEX_MOCK,
+        },
+    )
     for c in rows:
         cid = int(c.get("Id"))
         name = str(c.get("Name") or "")
