@@ -15,10 +15,13 @@ class Settings(BaseSettings):
     YANDEX_CLIENT_SECRET: str = ""
     YANDEX_REDIRECT_URI: str = "http://localhost:3000/auth/callback"
 
+    LLM_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-4o-mini"
+    LLM_BASE_URL: str = "https://api.deepseek.com"
+    OPENAI_MODEL: str = "deepseek-chat"
 
     PLATFORM_ADMIN_YANDEX_IDS: str = ""
+    PLATFORM_ADMIN_LOGINS: str = ""
     YANDEX_MOCK: bool = False
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
@@ -30,6 +33,10 @@ class Settings(BaseSettings):
     @property
     def platform_admin_id_set(self) -> set[str]:
         return {x.strip() for x in self.PLATFORM_ADMIN_YANDEX_IDS.split(",") if x.strip()}
+
+    @property
+    def platform_admin_login_set(self) -> set[str]:
+        return {x.strip().lower() for x in self.PLATFORM_ADMIN_LOGINS.split(",") if x.strip()}
 
 
 @lru_cache

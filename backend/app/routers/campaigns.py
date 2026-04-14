@@ -58,7 +58,7 @@ async def generate_recs(
     if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")
     summary = f"Кампания {c['name']} (yandex id {c['yandex_campaign_id']}), режим советник."
-    items = generate_recommendations(summary)
+    items = generate_recommendations(summary, db=db)
     for it in items:
         tq.insert_recommendation(
             db,

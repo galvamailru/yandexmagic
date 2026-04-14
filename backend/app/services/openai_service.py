@@ -2,18 +2,23 @@ import json
 from typing import Any
 
 from openai import OpenAI
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.services.prompt_store import get_ai_prompt
 
 settings = get_settings()
 
 
 def _client() -> OpenAI:
-    return OpenAI(api_key=settings.OPENAI_API_KEY or "sk-mock")
+    return OpenAI(
+        api_key=settings.LLM_API_KEY or settings.OPENAI_API_KEY or "sk-mock",
+        base_url=settings.LLM_BASE_URL,
+    )
 
 
-def generate_recommendations(stats_summary: str) -> list[dict[str, Any]]:
-    if not settings.OPENAI_API_KEY:
+def generate_recommendations(stats_summary: str, db: Session | None = None) -> list[dict[str, Any]]:
+    if not (settings.LLM_API_KEY or settings.OPENAI_API_KEY):
         return [
             {
                 "kind": "keyword",
@@ -22,13 +27,16 @@ def generate_recommendations(stats_summary: str) -> list[dict[str, Any]]:
                 "payload": {"keyword_id": 0},
             }
         ]
+    system_prompt = get_ai_prompt(db) if db is not None else (
+        "Ты эксперт по Яндекс Директ. Ответь ТОЛЬКО JSON-массивом объектов "
+        "{kind,title,body,payload} с конкретными рекомендациями по русски."
+    )
     resp = _client().chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=[
             {
                 "role": "system",
-                "content": "Ты эксперт по Яндекс Директ. Ответь ТОЛЬКО JSON-массивом объектов "
-                '{kind,title,body,payload} с конкретными рекомендациями по русски.',
+                "content": system_prompt,
             },
             {"role": "user", "content": stats_summary},
         ],
@@ -45,7 +53,7 @@ def generate_recommendations(stats_summary: str) -> list[dict[str, Any]]:
 
 
 def generate_ad_texts(business_summary: str, keywords: list[str]) -> list[dict[str, str]]:
-    if not settings.OPENAI_API_KEY:
+    if not (settings.LLM_API_KEY or settings.OPENAI_API_KEY):
         return [
             {"title": "Заголовок 1", "title2": "Уточнение", "text": "Текст объявления с УТП."},
             {"title": "Заголовок 2", "title2": "Доставка", "text": "Закажите онлайн, быстрая доставка."},

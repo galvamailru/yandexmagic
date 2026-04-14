@@ -64,7 +64,10 @@ async def yandex_callback(body: OAuthCallbackBody, db: Annotated[Session, Depend
     user = db.query(User).filter(User.yandex_id == yandex_id).first()
     if not user:
         admin_ids = settings.platform_admin_id_set
+        admin_logins = settings.platform_admin_login_set
         is_admin = yandex_id in admin_ids if admin_ids else False
+        if login and login.lower() in admin_logins:
+            is_admin = True
         if not admin_ids:
             cnt = db.query(User).count()
             is_admin = cnt == 0

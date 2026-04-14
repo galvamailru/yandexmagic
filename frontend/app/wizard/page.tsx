@@ -76,14 +76,18 @@ export default function WizardPage() {
               <CardTitle>Шаг 1 — параметры</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <label className="text-sm font-medium block">URL сайта</label>
               <Input placeholder="https://site.ru" value={form.site_url} onChange={(e) => setForm({ ...form, site_url: e.target.value })} />
+              <label className="text-sm font-medium block">Бюджет в день (₽)</label>
               <Input
                 type="number"
                 placeholder="Бюджет в день, ₽"
                 value={form.budget_rub}
                 onChange={(e) => setForm({ ...form, budget_rub: Number(e.target.value) })}
               />
+              <label className="text-sm font-medium block">География показов</label>
               <Input placeholder="Гео" value={form.geo} onChange={(e) => setForm({ ...form, geo: e.target.value })} />
+              <label className="text-sm font-medium block">Цель кампании</label>
               <Input placeholder="Цель" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} />
               <Button onClick={submit1}>Далее</Button>
             </CardContent>
@@ -109,12 +113,15 @@ export default function WizardPage() {
             <CardContent className="space-y-4">
               {ads.map((a, i) => (
                 <div key={i} className="grid gap-2 border rounded-lg p-3">
+                  <label className="text-sm font-medium">Заголовок 1</label>
                   <Input value={a.title || ""} onChange={(e) => {
                     const n = [...ads]; n[i] = { ...n[i], title: e.target.value }; setAds(n);
                   }} />
+                  <label className="text-sm font-medium">Заголовок 2</label>
                   <Input value={a.title2 || ""} onChange={(e) => {
                     const n = [...ads]; n[i] = { ...n[i], title2: e.target.value }; setAds(n);
                   }} />
+                  <label className="text-sm font-medium">Текст объявления</label>
                   <Input value={a.text || ""} onChange={(e) => {
                     const n = [...ads]; n[i] = { ...n[i], text: e.target.value }; setAds(n);
                   }} />

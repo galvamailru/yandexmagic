@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutDashboard, Megaphone, Sparkles, Shield } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { LayoutDashboard, Megaphone, Sparkles, Shield, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 const nav = [
   { href: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
@@ -19,6 +20,13 @@ export function Shell({
   isAdmin?: boolean;
 }) {
   const path = usePathname();
+  const router = useRouter();
+
+  function logout() {
+    localStorage.removeItem("ym_token");
+    router.push("/login");
+  }
+
   return (
     <div className="min-h-screen flex">
       <aside className="w-64 border-r border-[hsl(var(--border))] bg-white p-4 flex flex-col gap-6">
@@ -57,6 +65,12 @@ export function Shell({
             </Link>
           )}
         </nav>
+        <div className="mt-auto">
+          <Button variant="outline" className="w-full justify-start gap-2" onClick={logout}>
+            <LogOut className="h-4 w-4" />
+            Выйти
+          </Button>
+        </div>
       </aside>
       <main className="flex-1 p-8 bg-gradient-to-br from-slate-50 to-white">{children}</main>
     </div>

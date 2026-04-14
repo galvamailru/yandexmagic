@@ -26,6 +26,34 @@ CREATE TABLE IF NOT EXISTS wizard_sessions (
 """
             )
         )
+        db.execute(
+            text(
+                """
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+            )
+        )
+        db.execute(
+            text(
+                """
+INSERT INTO app_settings(key, value)
+VALUES ('ai_agent_prompt', :value)
+ON CONFLICT (key) DO NOTHING
+"""
+            ),
+            {
+                "value": (
+                    "Ты senior PPC-специалист по Яндекс Директ. Анализируй статистику строго по данным, "
+                    "не придумывай факты. Отвечай на русском. Если просят рекомендации — возвращай JSON-массив "
+                    "объектов {kind,title,body,payload}. Для плохих фраз при CTR<1% и расходе>500 предлагай "
+                    "suspend. Для эффективных при CTR>5% предлагай bid_up с аккуратным шагом."
+                )
+            },
+        )
         db.commit()
     finally:
         db.close()

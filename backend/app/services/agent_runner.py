@@ -49,7 +49,7 @@ async def run_for_tenant(db: Session, tenant: Tenant) -> None:
             for r in rows[:50]
         ]
         summary = "Статистика по ключевым фразам:\n" + "\n".join(lines)
-        items = generate_recommendations(summary)
+        items = generate_recommendations(summary, db=db)
         for it in items:
             pl = dict(it.get("payload") or {})
             tq.insert_recommendation(

@@ -14,6 +14,8 @@ export default function AdminPage() {
   const router = useRouter();
   const [rows, setRows] = useState<Tenant[]>([]);
   const [logs, setLogs] = useState<{ message: string; level: string; created_at: string | null }[]>([]);
+  const [prompt, setPrompt] = useState("");
+  const [savingPrompt, setSavingPrompt] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
@@ -31,6 +33,8 @@ export default function AdminPage() {
         setRows(t);
         const l = await apiFetch<{ message: string; level: string; created_at: string | null }[]>("/api/admin/agent-logs?limit=50");
         setLogs(l);
+        const p = await apiFetch<{ prompt: string }>("/api/admin/ai-prompt");
+        setPrompt(p.prompt || "");
       } catch (e) {
         toast.error(String(e));
       }
@@ -49,6 +53,21 @@ export default function AdminPage() {
     toast.success(blocked ? "Тенант заблокирован" : "Тенант разблокирован");
     const t = await apiFetch<Tenant[]>("/api/admin/tenants");
     setRows(t);
+  }
+
+  async function savePrompt() {
+    setSavingPrompt(true);
+    try {
+      await apiFetch("/api/admin/ai-prompt", {
+        method: "PUT",
+        body: JSON.stringify({ prompt }),
+      });
+      toast.success("Промпт сохранён");
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setSavingPrompt(false);
+    }
   }
 
   return (
@@ -80,6 +99,23 @@ export default function AdminPage() {
                 </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Промпт AI-агента (DeepSeek)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <textarea
+              className="w-full min-h-52 rounded-md border border-[hsl(var(--border))] p-3 text-sm"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Введите system prompt для агента..."
+            />
+            <Button onClick={savePrompt} disabled={savingPrompt}>
+              {savingPrompt ? "Сохраняем..." : "Сохранить промпт"}
+            </Button>
           </CardContent>
         </Card>
 

@@ -2,16 +2,22 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth.jwt_tokens import create_access_token
 from app.database import get_db
-from app.deps import get_current_user, require_platform_admin
+from app.deps import require_platform_admin
 from app.models.public import Tenant, User
 from app.repositories import tenant_queries as tq
 from app.schemas.common import AdminTenantOut, AgentLogOut, TokenResponse
+from app.services.prompt_store import get_ai_prompt, set_ai_prompt
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+class PromptBody(BaseModel):
+    prompt: str
 
 
 @router.get("/tenants", response_model=list[AdminTenantOut])
@@ -101,3 +107,24 @@ def all_agent_logs(
         )
         for r in rows
     ]
+
+
+@router.get("/ai-prompt")
+def read_ai_prompt(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_platform_admin)],
+) -> dict[str, str]:
+    return {"prompt": get_ai_prompt(db)}
+
+
+@router.put("/ai-prompt")
+def update_ai_prompt(
+    body: PromptBody,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_platform_admin)],
+) -> dict[str, str]:
+    text = body.prompt.strip()
+    if len(text) < 20:
+        raise HTTPException(status_code=400, detail="Prompt is too short")
+    set_ai_prompt(db, text)
+    return {"status": "ok"}
