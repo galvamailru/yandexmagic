@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { setToken } from "@/lib/api";
 import { API } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export default function AuthCallbackPage() {
+function AuthCallbackInner() {
   const router = useRouter();
   const params = useSearchParams();
   const [msg, setMsg] = useState("Завершаем вход…");
@@ -46,5 +46,19 @@ export default function AuthCallbackPage() {
         <p className="text-sm text-[hsl(var(--muted-foreground))]">{msg}</p>
       </div>
     </div>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center p-8">
+          <Skeleton className="h-8 w-48" />
+        </div>
+      }
+    >
+      <AuthCallbackInner />
+    </Suspense>
   );
 }
