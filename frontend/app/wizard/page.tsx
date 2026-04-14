@@ -16,6 +16,9 @@ export default function WizardPage() {
   const [form, setForm] = useState({ site_url: "", budget_rub: 5000, geo: "Москва", goal: "Лиды" });
   const [ads, setAds] = useState<Record<string, string>[]>([]);
   const [risk, setRisk] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
+  const [parseProgress, setParseProgress] = useState(0);
+  const [parseStage, setParseStage] = useState("");
 
   useEffect(() => {
     if (!getToken()) router.replace("/login");
@@ -39,10 +42,39 @@ export default function WizardPage() {
   }
 
   async function run2() {
-    const res = await apiFetch<{ ads: Record<string, string>[] }>("/api/wizard/step2", { method: "POST" });
-    setAds(res.ads || []);
-    setStep(3);
-    toast.success("Ключи и объявления готовы");
+    if (isParsing) return;
+    setIsParsing(true);
+    setParseProgress(5);
+    setParseStage("Проверяем данные шага 1...");
+
+    const interval = window.setInterval(() => {
+      setParseProgress((prev) => (prev < 92 ? prev + 4 : prev));
+    }, 700);
+
+    try {
+      setParseStage("Парсим сайт...");
+      const phase1 = window.setTimeout(() => setParseStage("Собираем ключи через Вордстат..."), 1400);
+      const phase2 = window.setTimeout(() => setParseStage("Группируем ключи и генерируем объявления AI..."), 3200);
+
+      const res = await apiFetch<{ ads: Record<string, string>[] }>("/api/wizard/step2", { method: "POST" });
+      window.clearTimeout(phase1);
+      window.clearTimeout(phase2);
+
+      setParseProgress(100);
+      setParseStage("Готово");
+      setAds(res.ads || []);
+      setStep(3);
+      toast.success("Ключи и объявления готовы");
+    } catch (e) {
+      toast.error(`Ошибка шага 2: ${String(e)}`);
+    } finally {
+      window.clearInterval(interval);
+      window.setTimeout(() => {
+        setIsParsing(false);
+        setParseProgress(0);
+        setParseStage("");
+      }, 500);
+    }
   }
 
   async function submit3() {
@@ -99,8 +131,24 @@ export default function WizardPage() {
             <CardHeader>
               <CardTitle>Шаг 2 — AI сбор ключей</CardTitle>
             </CardHeader>
-            <CardContent>
-              <Button onClick={run2}>Запустить парсинг и Вордстат</Button>
+            <CardContent className="space-y-4">
+              <Button onClick={run2} disabled={isParsing}>
+                {isParsing ? "Идёт обработка..." : "Запустить парсинг и Вордстат"}
+              </Button>
+              {isParsing && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[hsl(var(--muted-foreground))]">{parseStage || "Обработка..."}</span>
+                    <span>{parseProgress}%</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-[hsl(var(--muted))] overflow-hidden">
+                    <div
+                      className="h-full bg-[hsl(var(--primary))] transition-all duration-500"
+                      style={{ width: `${parseProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
