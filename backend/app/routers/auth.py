@@ -19,9 +19,23 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
 
+def _oauth_configured() -> bool:
+    value = (settings.YANDEX_CLIENT_ID or "").strip()
+    if not value:
+        return False
+    placeholders = {
+        "replace_with_yandex_client_id",
+        "your_yandex_client_id",
+        "YANDEX_CLIENT_ID",
+    }
+    if value in placeholders or value.lower().startswith("replace_"):
+        return False
+    return True
+
+
 @router.get("/yandex/url", response_model=YandexAuthUrl)
 async def yandex_auth_url() -> YandexAuthUrl:
-    if not settings.YANDEX_CLIENT_ID:
+    if not _oauth_configured():
         raise HTTPException(status_code=500, detail="YANDEX_CLIENT_ID is not configured")
     state = secrets.token_urlsafe(16)
     return YandexAuthUrl(url=yandex_oauth.build_authorize_url(state), state=state)
@@ -123,8 +137,8 @@ def _expires_at(expires_in: object) -> datetime | None:
 @router.post("/dev-token", response_model=TokenResponse, include_in_schema=False)
 def dev_token(db: Annotated[Session, Depends(get_db)]) -> TokenResponse:
     """Local-only helper when OAuth is not configured."""
-    if settings.YANDEX_CLIENT_ID:
-        raise HTTPException(status_code=404)
+    if _oauth_configured():
+        raise HTTPException(status_code=404, detail="OAuth is configured, dev-token is disabled")
     user = db.query(User).first()
     if not user:
         user = User(yandex_id="dev", login="dev", is_platform_admin=True)
