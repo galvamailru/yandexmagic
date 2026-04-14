@@ -17,15 +17,27 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { apiFetch, getToken } from "@/lib/api";
+import { statusLabel } from "@/lib/recommendation-format";
 import { toast } from "sonner";
 
 type Summary = { campaigns_count: number; total_spend_rub: string; avg_cpc_rub: string | null };
 type Rec = { id: string; title: string; body: string; status: string; created_at: string | null };
+type AutomationKpis = {
+  recommendations_total: number;
+  recommendations_pending: number;
+  recommendations_applied: number;
+  recommendations_apply_rate_pct: number;
+  actions_7d: number;
+  campaigns_total: number;
+  campaigns_autopilot: number;
+  autopilot_share_pct: number;
+};
 
 export default function DashboardPage() {
   const router = useRouter();
   const [me, setMe] = useState<{ is_platform_admin: boolean } | null>(null);
   const [sum, setSum] = useState<Summary | null>(null);
+  const [kpis, setKpis] = useState<AutomationKpis | null>(null);
   const [chart, setChart] = useState<{ date: string; cost_rub: number }[]>([]);
   const [recs, setRecs] = useState<Rec[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +55,8 @@ export default function DashboardPage() {
         setSum(s);
         const c = await apiFetch<{ date: string; cost_rub: number }[]>("/api/dashboard/spend-chart?days=14");
         setChart(c);
+        const a = await apiFetch<AutomationKpis>("/api/dashboard/automation-kpis");
+        setKpis(a);
         const r = await apiFetch<Rec[]>("/api/dashboard/recommendations?limit=10");
         setRecs(r);
       } catch (e) {
@@ -99,6 +113,25 @@ export default function DashboardPage() {
           </Card>
         </div>
 
+        <div className="grid md:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader><CardTitle className="text-sm font-medium text-[hsl(var(--muted-foreground))]">Применение рекомендаций</CardTitle></CardHeader>
+            <CardContent className="text-3xl font-semibold">{kpis ? `${kpis.recommendations_apply_rate_pct}%` : "—"}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle className="text-sm font-medium text-[hsl(var(--muted-foreground))]">Ожидают обработки</CardTitle></CardHeader>
+            <CardContent className="text-3xl font-semibold">{kpis?.recommendations_pending ?? "—"}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle className="text-sm font-medium text-[hsl(var(--muted-foreground))]">Автодействий за 7 дней</CardTitle></CardHeader>
+            <CardContent className="text-3xl font-semibold">{kpis?.actions_7d ?? "—"}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle className="text-sm font-medium text-[hsl(var(--muted-foreground))]">Доля автопилота</CardTitle></CardHeader>
+            <CardContent className="text-3xl font-semibold">{kpis ? `${kpis.autopilot_share_pct}%` : "—"}</CardContent>
+          </Card>
+        </div>
+
         <Card>
           <CardHeader>
             <CardTitle>Расход по дням</CardTitle>
@@ -132,7 +165,7 @@ export default function DashboardPage() {
                 <div className="font-medium">{r.title}</div>
                 <div className="text-sm text-[hsl(var(--muted-foreground))]">{r.body}</div>
                 <div className="text-xs mt-1 text-[hsl(var(--muted-foreground))]">
-                  {r.status} {r.created_at ? `• ${new Date(r.created_at).toLocaleString("ru-RU")}` : ""}
+                  {statusLabel(r.status)} {r.created_at ? `• ${new Date(r.created_at).toLocaleString("ru-RU")}` : ""}
                 </div>
               </div>
             ))}

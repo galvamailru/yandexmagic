@@ -21,7 +21,6 @@ export default function AdminPage() {
   const [runs, setRuns] = useState<JobRun[]>([]);
   const [prompt, setPrompt] = useState("");
   const [savingPrompt, setSavingPrompt] = useState(false);
-  const [normalizing, setNormalizing] = useState(false);
   const [creatingSandbox, setCreatingSandbox] = useState(false);
   const [sandboxName, setSandboxName] = useState("Sandbox tenant");
   const [roleForm, setRoleForm] = useState({ tenantId: "", userId: "", role: "manager" });
@@ -96,23 +95,6 @@ export default function AdminPage() {
     }
   }
 
-  async function normalizeRecs() {
-    setNormalizing(true);
-    try {
-      const res = await apiFetch<{ report: Array<{ tenant: string; normalized: number; split_created: number }> }>(
-        "/api/admin/normalize-recommendations",
-        { method: "POST" }
-      );
-      const totalNorm = res.report.reduce((a, x) => a + (x.normalized || 0), 0);
-      const totalSplit = res.report.reduce((a, x) => a + (x.split_created || 0), 0);
-      toast.success(`Нормализация завершена: обновлено ${totalNorm}, создано доп. рекомендаций ${totalSplit}`);
-    } catch (e) {
-      toast.error(String(e));
-    } finally {
-      setNormalizing(false);
-    }
-  }
-
   async function createSandbox() {
     setCreatingSandbox(true);
     try {
@@ -170,7 +152,7 @@ export default function AdminPage() {
               Тенанты
             </Button>
             <Button variant={tab === "jobs" ? "default" : "outline"} size="sm" onClick={() => setTab("jobs")}>
-              Job runs
+              Запуски задач
             </Button>
             <Button variant={tab === "logs" ? "default" : "outline"} size="sm" onClick={() => setTab("logs")}>
               Логи
@@ -214,50 +196,52 @@ export default function AdminPage() {
         </Card>
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Sandbox и роли</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-col md:flex-row gap-2">
-              <Input value={sandboxName} onChange={(e) => setSandboxName(e.target.value)} placeholder="Название sandbox tenant" />
-              <Button onClick={createSandbox} disabled={creatingSandbox}>
-                {creatingSandbox ? "Создаём..." : "Создать sandbox"}
-              </Button>
-            </div>
-            <div className="grid md:grid-cols-4 gap-2">
-              <select
-                className="h-10 rounded-md border px-3"
-                value={roleForm.tenantId}
-                onChange={(e) => setRoleForm({ ...roleForm, tenantId: e.target.value })}
-              >
-                <option value="">Tenant</option>
-                {rows.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-              <Input
-                value={roleForm.userId}
-                onChange={(e) => setRoleForm({ ...roleForm, userId: e.target.value })}
-                placeholder="user_id (UUID)"
-              />
-              <select
-                className="h-10 rounded-md border px-3"
-                value={roleForm.role}
-                onChange={(e) => setRoleForm({ ...roleForm, role: e.target.value })}
-              >
-                <option value="owner">owner</option>
-                <option value="manager">manager</option>
-                <option value="viewer">viewer</option>
-              </select>
-              <Button onClick={saveRole} disabled={savingRole}>
-                {savingRole ? "Сохраняем..." : "Назначить роль"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        {tab === "tenants" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Sandbox и роли</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col md:flex-row gap-2">
+                <Input value={sandboxName} onChange={(e) => setSandboxName(e.target.value)} placeholder="Название sandbox tenant" />
+                <Button onClick={createSandbox} disabled={creatingSandbox}>
+                  {creatingSandbox ? "Создаём..." : "Создать sandbox"}
+                </Button>
+              </div>
+              <div className="grid md:grid-cols-4 gap-2">
+                <select
+                  className="h-10 rounded-md border px-3"
+                  value={roleForm.tenantId}
+                  onChange={(e) => setRoleForm({ ...roleForm, tenantId: e.target.value })}
+                >
+                  <option value="">Tenant</option>
+                  {rows.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  value={roleForm.userId}
+                  onChange={(e) => setRoleForm({ ...roleForm, userId: e.target.value })}
+                  placeholder="user_id (UUID)"
+                />
+                <select
+                  className="h-10 rounded-md border px-3"
+                  value={roleForm.role}
+                  onChange={(e) => setRoleForm({ ...roleForm, role: e.target.value })}
+                >
+                  <option value="owner">owner</option>
+                  <option value="manager">manager</option>
+                  <option value="viewer">viewer</option>
+                </select>
+                <Button onClick={saveRole} disabled={savingRole}>
+                  {savingRole ? "Сохраняем..." : "Назначить роль"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -274,9 +258,6 @@ export default function AdminPage() {
               <Button onClick={savePrompt} disabled={savingPrompt}>
                 {savingPrompt ? "Сохраняем..." : "Сохранить промпт"}
               </Button>
-              <Button variant="outline" onClick={normalizeRecs} disabled={normalizing}>
-                {normalizing ? "Нормализуем..." : "Нормализовать старые рекомендации"}
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -284,7 +265,7 @@ export default function AdminPage() {
         {tab === "jobs" && (
         <Card>
           <CardHeader>
-            <CardTitle>Job runs</CardTitle>
+            <CardTitle>Запуски задач</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm overflow-x-auto">
             <table className="w-full text-sm">

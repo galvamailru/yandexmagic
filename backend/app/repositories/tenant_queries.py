@@ -346,6 +346,46 @@ def mark_recommendations_applied(db: Session, schema: str, ids: list[UUID]) -> N
     db.commit()
 
 
+def recommendations_by_ids(db: Session, schema: str, campaign_uuid: UUID, ids: list[UUID]) -> list[dict[str, Any]]:
+    if not ids:
+        return []
+    _set_path(db, schema)
+    rows = db.execute(
+        text(
+            f'''
+SELECT id, kind, title, body, payload, status
+FROM "{schema}".recommendations
+WHERE campaign_id = :cid AND id = ANY(:ids)
+ORDER BY created_at DESC
+'''
+        ),
+        {"cid": str(campaign_uuid), "ids": [str(x) for x in ids]},
+    ).fetchall()
+    return [
+        {
+            "id": str(r[0]),
+            "kind": r[1],
+            "title": r[2],
+            "body": r[3],
+            "payload": json.loads(r[4] or "{}"),
+            "status": r[5],
+        }
+        for r in rows
+    ]
+
+
+def update_recommendations_status(db: Session, schema: str, ids: list[UUID], status: str) -> int:
+    if not ids:
+        return 0
+    _set_path(db, schema)
+    res = db.execute(
+        text(f'UPDATE "{schema}".recommendations SET status = :s WHERE id = ANY(:ids)'),
+        {"s": status, "ids": [str(x) for x in ids]},
+    )
+    db.commit()
+    return int(res.rowcount or 0)
+
+
 def insert_agent_log(
     db: Session,
     schema: str,

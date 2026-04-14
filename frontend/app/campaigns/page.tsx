@@ -89,15 +89,6 @@ export default function CampaignsPage() {
     }
   }
 
-  async function applyAll(id: string) {
-    try {
-      await apiFetch(`/api/campaigns/${id}/recommendations/apply-all`, { method: "POST" });
-      toast.success("Рекомендации применены");
-    } catch (e) {
-      toast.error(String(e));
-    }
-  }
-
   if (loading || !me) {
     return (
       <Shell isAdmin={false}>
@@ -187,9 +178,6 @@ export default function CampaignsPage() {
                     <td className="py-3 space-x-2 whitespace-nowrap">
                       <Button size="sm" variant="outline" asChild>
                         <Link href={`/campaigns/${c.id}`}>Открыть</Link>
-                      </Button>
-                      <Button size="sm" onClick={() => applyAll(c.id)}>
-                        Применить всё
                       </Button>
                     </td>
                   </tr>

@@ -183,3 +183,12 @@ class ActionHistoryOut(BaseModel):
     payload_after: dict[str, Any]
     correlation_id: str | None
     created_at: str | None
+
+
+class RecommendationBulkStatusBody(BaseModel):
+    recommendation_ids: list[UUID]
+    status: str = Field(pattern="^(pending|applied|rejected)$")
+
+
+class RecommendationBulkApplyBody(BaseModel):
+    recommendation_ids: list[UUID]

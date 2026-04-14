@@ -17,6 +17,8 @@ from app.schemas.common import (
     CampaignModeBody,
     CampaignOut,
     CampaignRecommendationOut,
+    RecommendationBulkApplyBody,
+    RecommendationBulkStatusBody,
     CampaignStateBody,
     CampaignStatsOut,
 )
@@ -226,6 +228,83 @@ async def apply_all(
         campaign_id,
         "info",
         "Применены рекомендации",
+        {"applied": len(applied_ids)},
+    )
+    return {"status": "ok", "applied": str(len(applied_ids))}
+
+
+@router.post("/{campaign_id}/recommendations/bulk-status")
+async def recommendations_bulk_status(
+    campaign_id: UUID,
+    body: RecommendationBulkStatusBody,
+    db: Annotated[Session, Depends(get_db)],
+    tenant: Annotated[Tenant, Depends(require_tenant_access)],
+    _: Annotated[User, Depends(require_tenant_manager_or_owner)],
+) -> dict[str, str]:
+    changed = tq.update_recommendations_status(db, tenant.schema_name, body.recommendation_ids, body.status)
+    tq.insert_agent_log(
+        db,
+        tenant.schema_name,
+        campaign_id,
+        "info",
+        "Обновлены статусы рекомендаций",
+        {"changed": changed, "status": body.status},
+    )
+    return {"status": "ok", "changed": str(changed)}
+
+
+@router.post("/{campaign_id}/recommendations/apply-selected")
+async def apply_selected(
+    campaign_id: UUID,
+    body: RecommendationBulkApplyBody,
+    db: Annotated[Session, Depends(get_db)],
+    tenant: Annotated[Tenant, Depends(require_tenant_access)],
+    user: Annotated[User, Depends(require_tenant_manager_or_owner)],
+) -> dict[str, str]:
+    token = await sync_service.ensure_valid_access_token(db, tenant.id)
+    if not token:
+        raise HTTPException(status_code=400, detail="Yandex not connected")
+    pending = tq.recommendations_by_ids(db, tenant.schema_name, campaign_id, body.recommendation_ids)
+    applied_ids: list[UUID] = []
+    corr = get_correlation_id()
+    for p in pending:
+        if p.get("status") != "pending":
+            continue
+        payload = p.get("payload") or {}
+        kid = int(payload.get("keyword_id") or 0)
+        action = str(payload.get("action") or "")
+        if kid and action == "suspend":
+            await yandex_direct.keywords_suspend(token, [kid])
+            tq.insert_action_history(
+                db,
+                tenant.schema_name,
+                campaign_id,
+                "suspend_keyword",
+                {"keyword_id": kid, "status": "ON"},
+                {"keyword_id": kid, "status": "SUSPENDED", "actor_user_id": str(user.id)},
+                corr,
+            )
+        elif kid and action == "bid_up":
+            bid = float(payload.get("new_bid_rub") or 0)
+            if bid > 0:
+                await yandex_direct.keywords_set_bids(token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}])
+                tq.insert_action_history(
+                    db,
+                    tenant.schema_name,
+                    campaign_id,
+                    "set_bid",
+                    {"keyword_id": kid},
+                    {"keyword_id": kid, "bid_rub": bid, "actor_user_id": str(user.id)},
+                    corr,
+                )
+        applied_ids.append(UUID(str(p["id"])))
+    tq.mark_recommendations_applied(db, tenant.schema_name, applied_ids)
+    tq.insert_agent_log(
+        db,
+        tenant.schema_name,
+        campaign_id,
+        "info",
+        "Применены выбранные рекомендации",
         {"applied": len(applied_ids)},
     )
     return {"status": "ok", "applied": str(len(applied_ids))}

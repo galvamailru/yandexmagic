@@ -70,6 +70,7 @@ export default function CampaignDetailPage() {
   const [keywordTotal, setKeywordTotal] = useState(0);
   const [ads, setAds] = useState<AdRow[]>([]);
   const [adTotal, setAdTotal] = useState(0);
+  const [selectedRecIds, setSelectedRecIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -181,6 +182,57 @@ export default function CampaignDetailPage() {
     }
   }
 
+  function modeLabel(mode: string): string {
+    if (mode === "monitoring") return "Мониторинг";
+    if (mode === "advisor") return "Советник";
+    if (mode === "autopilot") return "Автопилот";
+    return mode;
+  }
+
+  async function applySelectedRecommendations() {
+    if (selectedRecIds.length === 0) {
+      toast.error("Выберите рекомендации");
+      return;
+    }
+    try {
+      await apiFetch(`/api/campaigns/${params.id}/recommendations/apply-selected`, {
+        method: "POST",
+        body: JSON.stringify({ recommendation_ids: selectedRecIds }),
+      });
+      const r = await apiFetch<Paged<Detail["recommendations"][number]>>(
+        `/api/campaigns/${params.id}/recommendations?page=${recPage}&limit=${pageSize}`
+      );
+      setRecommendations(r.items);
+      setRecTotal(r.total);
+      setSelectedRecIds([]);
+      toast.success("Выбранные рекомендации применены");
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }
+
+  async function bulkUpdateRecommendationStatus(status: "pending" | "rejected" | "applied") {
+    if (selectedRecIds.length === 0) {
+      toast.error("Выберите рекомендации");
+      return;
+    }
+    try {
+      await apiFetch(`/api/campaigns/${params.id}/recommendations/bulk-status`, {
+        method: "POST",
+        body: JSON.stringify({ recommendation_ids: selectedRecIds, status }),
+      });
+      const r = await apiFetch<Paged<Detail["recommendations"][number]>>(
+        `/api/campaigns/${params.id}/recommendations?page=${recPage}&limit=${pageSize}`
+      );
+      setRecommendations(r.items);
+      setRecTotal(r.total);
+      setSelectedRecIds([]);
+      toast.success("Статусы рекомендаций обновлены");
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }
+
   async function undoLast() {
     setUndoing(true);
     try {
@@ -235,7 +287,7 @@ export default function CampaignDetailPage() {
           <>
             <div className="grid md:grid-cols-4 gap-4">
               <Card><CardContent className="p-4"><div className="text-xs text-[hsl(var(--muted-foreground))]">Yandex ID</div><div className="font-semibold">{data.campaign.yandex_campaign_id}</div></CardContent></Card>
-              <Card><CardContent className="p-4"><div className="text-xs text-[hsl(var(--muted-foreground))]">Режим</div><div className="font-semibold">{data.campaign.mode}</div></CardContent></Card>
+              <Card><CardContent className="p-4"><div className="text-xs text-[hsl(var(--muted-foreground))]">Режим</div><div className="font-semibold">{modeLabel(data.campaign.mode)}</div></CardContent></Card>
               <Card><CardContent className="p-4"><div className="text-xs text-[hsl(var(--muted-foreground))]">Расход (30 дн)</div><div className="font-semibold">{totals.spend.toFixed(2)} ₽</div></CardContent></Card>
               <Card><CardContent className="p-4"><div className="text-xs text-[hsl(var(--muted-foreground))]">Клики / показы</div><div className="font-semibold">{totals.clicks} / {totals.impr}</div></CardContent></Card>
             </div>
@@ -244,7 +296,7 @@ export default function CampaignDetailPage() {
               <CardHeader><CardTitle>Вкладки кампании</CardTitle></CardHeader>
               <CardContent className="flex flex-wrap gap-2">
                 <Button size="sm" variant={tab === "settings" ? "default" : "outline"} onClick={() => setTab("settings")}>Настройки</Button>
-                <Button size="sm" variant={tab === "preview" ? "default" : "outline"} onClick={() => setTab("preview")}>Preview</Button>
+                <Button size="sm" variant={tab === "preview" ? "default" : "outline"} onClick={() => setTab("preview")}>Предпросмотр</Button>
                 <Button size="sm" variant={tab === "keywords" ? "default" : "outline"} onClick={() => setTab("keywords")}>Ключевые слова</Button>
                 <Button size="sm" variant={tab === "ads" ? "default" : "outline"} onClick={() => setTab("ads")}>Объявления</Button>
                 <Button size="sm" variant={tab === "history" ? "default" : "outline"} onClick={() => setTab("history")}>Аудит</Button>
@@ -349,11 +401,11 @@ export default function CampaignDetailPage() {
 
             {tab === "preview" && (
             <Card>
-              <CardHeader><CardTitle>Preview автопилота</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Предпросмотр автопилота</CardTitle></CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={loadPreview} disabled={loadingPreview}>
-                    {loadingPreview ? "Обновляем..." : "Обновить preview"}
+                    {loadingPreview ? "Обновляем..." : "Обновить предпросмотр"}
                   </Button>
                   <Button variant="outline" onClick={undoLast} disabled={undoing}>
                     {undoing ? "Откатываем..." : "Откатить последнее действие"}
@@ -414,9 +466,27 @@ export default function CampaignDetailPage() {
             <Card>
               <CardHeader><CardTitle>Последние рекомендации</CardTitle></CardHeader>
               <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setSelectedRecIds(recommendations.map((x) => x.id))}>Выбрать все на странице</Button>
+                  <Button size="sm" variant="outline" onClick={() => setSelectedRecIds([])}>Сбросить выбор</Button>
+                  <Button size="sm" onClick={applySelectedRecommendations}>Применить выбранные</Button>
+                  <Button size="sm" variant="outline" onClick={() => bulkUpdateRecommendationStatus("rejected")}>Статус: Отклонено</Button>
+                  <Button size="sm" variant="outline" onClick={() => bulkUpdateRecommendationStatus("pending")}>Статус: Ожидает</Button>
+                </div>
                 {recommendations.map((r) => (
                   <div key={r.id} className={recommendationCardClass(r.kind)}>
-                    <div className="font-medium">{r.title}</div>
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedRecIds.includes(r.id)}
+                        onChange={(e) =>
+                          setSelectedRecIds((prev) =>
+                            e.target.checked ? [...prev, r.id] : prev.filter((id) => id !== r.id)
+                          )
+                        }
+                      />
+                      <div className="font-medium">{r.title}</div>
+                    </div>
                     <div className="text-sm text-[hsl(var(--muted-foreground))]">{r.body}</div>
                     <div className="mt-2 flex items-center gap-2">
                       <span className={kindBadgeClass(r.kind)}>{kindLabel(r.kind)}</span>

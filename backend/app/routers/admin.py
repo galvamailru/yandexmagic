@@ -153,23 +153,6 @@ def update_ai_prompt(
     return {"status": "ok"}
 
 
-@router.post("/normalize-recommendations")
-def normalize_recommendations(
-    db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_platform_admin)],
-    tenant_id: UUID | None = None,
-) -> dict:
-    if tenant_id:
-        tenants = db.query(Tenant).filter(Tenant.id == tenant_id).all()
-    else:
-        tenants = db.query(Tenant).all()
-    report = []
-    for t in tenants:
-        stats = tq.normalize_recommendations_for_schema(db, t.schema_name)
-        report.append({"tenant_id": str(t.id), "tenant": t.name, **stats})
-    return {"status": "ok", "report": report}
-
-
 @router.get("/job-runs")
 def job_runs(
     db: Annotated[Session, Depends(get_db)],
