@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     YANDEX_MOCK: bool = False
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    TOKEN_ENCRYPTION_KEY: str = ""
+    YANDEX_OAUTH_TOKEN_URL: str = "https://oauth.yandex.ru/token"
+    WORDSTAT_URL: str = "https://api.wordstat.yandex.net/v1/top-requests"
+    AUTOPILOT_MAX_CHANGES_PER_CYCLE: int = 30
+    AUTOPILOT_DRY_RUN_DEFAULT: bool = True
+    ALERT_WEBHOOK_URL: str = ""
 
     @property
     def cors_origins_list(self) -> list[str]:

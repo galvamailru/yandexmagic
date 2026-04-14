@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user, require_tenant_access
-from app.models.public import Tenant, TenantYandexToken, User
+from app.deps import get_current_user, require_tenant_access, require_tenant_manager_or_owner
+from app.models.public import Tenant, User
 from app.repositories import tenant_queries as tq
 from app.schemas.common import WizardLaunchBody, WizardStep1, WizardStep2Result, WizardStep3Body
 from app.services import site_scraper, wordstat
+from app.services.sync_service import ensure_valid_access_token
 from app.services.openai_service import generate_ad_texts
 from app.services.wizard_store import get_wizard, upsert_wizard
 from app.services import yandex_direct
@@ -23,6 +24,7 @@ def step1(
     body: WizardStep1,
     db: Annotated[Session, Depends(get_db)],
     tenant: Annotated[Tenant, Depends(require_tenant_access)],
+    _: Annotated[User, Depends(require_tenant_manager_or_owner)],
 ) -> dict:
     payload = {
         "site_url": body.site_url,
@@ -38,6 +40,7 @@ def step1(
 async def step2(
     db: Annotated[Session, Depends(get_db)],
     tenant: Annotated[Tenant, Depends(require_tenant_access)],
+    _: Annotated[User, Depends(require_tenant_manager_or_owner)],
 ) -> WizardStep2Result:
     w = get_wizard(db, tenant.id)
     if not w or not w.get("payload"):
@@ -48,7 +51,8 @@ async def step2(
     title, text = await asyncio.to_thread(site_scraper.fetch_page_text, url)
     seed = [title, *text.split()[:40]]
     phrases = list({s.strip() for s in seed if len(s.strip()) > 2})[:15]
-    ws = await wordstat.top_requests(phrases)
+    access_token = await ensure_valid_access_token(db, tenant.id)
+    ws = await wordstat.top_requests(phrases, access_token=access_token)
     keywords = [str(x.get("phrase")) for x in ws if x.get("phrase")]
     if not keywords:
         keywords = phrases[:10]
@@ -70,6 +74,7 @@ def step3(
     body: WizardStep3Body,
     db: Annotated[Session, Depends(get_db)],
     tenant: Annotated[Tenant, Depends(require_tenant_access)],
+    _: Annotated[User, Depends(require_tenant_manager_or_owner)],
 ) -> dict:
     w = get_wizard(db, tenant.id)
     if not w or not w.get("payload"):
@@ -85,15 +90,15 @@ async def launch(
     body: WizardLaunchBody,
     db: Annotated[Session, Depends(get_db)],
     tenant: Annotated[Tenant, Depends(require_tenant_access)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_tenant_manager_or_owner)],
 ) -> dict:
     if not body.accept_autopilot_risk:
         raise HTTPException(status_code=400, detail="Нужно подтвердить риски автопилота")
     user.autopilot_risk_accepted_at = datetime.now(timezone.utc)
     db.add(user)
 
-    tok = db.query(TenantYandexToken).filter(TenantYandexToken.tenant_id == tenant.id).first()
-    if not tok:
+    access_token = await ensure_valid_access_token(db, tenant.id)
+    if not access_token:
         raise HTTPException(status_code=400, detail="Нет OAuth-токена Директа")
     w = get_wizard(db, tenant.id)
     if not w or not w.get("payload"):
@@ -106,7 +111,7 @@ async def launch(
         "StartDate": __import__("datetime").date.today().isoformat(),
         "TextCampaign": {"BiddingStrategy": {"Search": {"BiddingStrategyType": "SERVING_OFF"}}},
     }
-    yid = await yandex_direct.campaigns_add(tok.access_token, spec)
+    yid = await yandex_direct.campaigns_add(access_token, spec)
     if not yid:
         raise HTTPException(status_code=502, detail="Не удалось создать кампанию в Директе")
     local = tq.upsert_campaign(db, tenant.schema_name, int(yid), name, "ON", mode="autopilot")

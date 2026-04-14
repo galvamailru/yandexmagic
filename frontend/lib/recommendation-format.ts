@@ -37,3 +37,13 @@ export function kindBadgeClass(kind: string): string {
     !["warning", "success", "keyword"].includes(kind) && "border-slate-200 bg-slate-50 text-slate-700"
   );
 }
+
+export function recommendationCardClass(kind: string): string {
+  return cn(
+    "rounded-lg border p-4 space-y-2",
+    kind === "warning" && "border-rose-200 bg-rose-50/40",
+    kind === "success" && "border-emerald-200 bg-emerald-50/40",
+    kind === "keyword" && "border-blue-200 bg-blue-50/40",
+    !["warning", "success", "keyword"].includes(kind) && "border-slate-200 bg-white"
+  );
+}

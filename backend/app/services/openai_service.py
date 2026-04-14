@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.services.prompt_store import get_ai_prompt
+from app.services.recommendation_normalizer import parse_structured_recommendations, sanitize_unstructured_body
 
 settings = get_settings()
 
@@ -43,13 +44,10 @@ def generate_recommendations(stats_summary: str, db: Session | None = None) -> l
         temperature=0.3,
     )
     text = resp.choices[0].message.content or "[]"
-    try:
-        data = json.loads(text)
-        if isinstance(data, list):
-            return data
-    except json.JSONDecodeError:
-        pass
-    return [{"kind": "general", "title": "Анализ", "body": text[:2000], "payload": {}}]
+    parsed = parse_structured_recommendations(text)
+    if parsed:
+        return parsed
+    return [{"kind": "general", "title": "Анализ", "body": sanitize_unstructured_body(text)[:2000], "payload": {}}]
 
 
 def generate_ad_texts(business_summary: str, keywords: list[str]) -> list[dict[str, str]]:

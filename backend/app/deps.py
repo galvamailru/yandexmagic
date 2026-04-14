@@ -74,3 +74,20 @@ def require_platform_admin(user: Annotated[User, Depends(get_current_user)]) -> 
     if not user.is_platform_admin:
         raise HTTPException(status_code=403, detail="Admin only")
     return user
+
+
+def require_tenant_manager_or_owner(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+    tenant_id: Annotated[UUID, Depends(get_effective_tenant_id)],
+) -> User:
+    if user.is_platform_admin:
+        return user
+    membership = (
+        db.query(TenantMembership)
+        .filter(TenantMembership.user_id == user.id, TenantMembership.tenant_id == tenant_id)
+        .first()
+    )
+    if not membership or membership.role not in {"owner", "manager"}:
+        raise HTTPException(status_code=403, detail="Manager or owner role required")
+    return user

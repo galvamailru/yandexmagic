@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { apiFetch, getToken } from "@/lib/api";
-import { kindBadgeClass, kindLabel, statusBadgeClass, statusLabel } from "@/lib/recommendation-format";
+import { kindBadgeClass, kindLabel, recommendationCardClass, statusBadgeClass, statusLabel } from "@/lib/recommendation-format";
 import { toast } from "sonner";
 
 type Campaign = { id: string; name: string };
@@ -30,16 +30,24 @@ type ParsedRec = {
 };
 
 function extractStructuredRecommendations(rawBody: string): ParsedRec[] {
-  try {
-    const parsed = JSON.parse(rawBody);
-    if (Array.isArray(parsed)) {
-      return parsed as ParsedRec[];
+  const candidates: string[] = [rawBody];
+  const blocks = rawBody.match(/```(?:json)?\s*([\s\S]*?)\s*```/gi) || [];
+  for (const block of blocks) {
+    const cleaned = block.replace(/```(?:json)?/i, "").replace(/```/g, "").trim();
+    if (cleaned) candidates.push(cleaned);
+  }
+  for (const c of candidates) {
+    try {
+      const parsed = JSON.parse(c);
+      if (Array.isArray(parsed)) {
+        return parsed as ParsedRec[];
+      }
+      if (parsed && Array.isArray(parsed.recommendations)) {
+        return parsed.recommendations as ParsedRec[];
+      }
+    } catch {
+      // continue trying other candidates
     }
-    if (parsed && Array.isArray(parsed.recommendations)) {
-      return parsed.recommendations as ParsedRec[];
-    }
-  } catch {
-    return [];
   }
   return [];
 }
@@ -154,7 +162,7 @@ export default function RecommendationsPage() {
               <p className="text-sm text-[hsl(var(--muted-foreground))]">По текущим фильтрам данных нет.</p>
             )}
             {rows.map((r) => (
-              <div key={r.id} className="rounded-lg border p-4 bg-white space-y-2">
+              <div key={r.id} className={recommendationCardClass(r.kind)}>
                 <div className="flex items-center justify-between gap-3">
                   <div className="font-semibold">{r.title}</div>
                   <div className="text-xs text-[hsl(var(--muted-foreground))]">
@@ -173,7 +181,7 @@ export default function RecommendationsPage() {
                   {extractStructuredRecommendations(r.body).length > 0 ? (
                     <div className="mt-2 space-y-2">
                       {extractStructuredRecommendations(r.body).map((sr, idx) => (
-                        <div key={idx} className="rounded-md border bg-slate-50 p-3">
+                        <div key={idx} className={recommendationCardClass(sr.kind || "general")}>
                           <div className="font-medium">{sr.title || "Рекомендация"}</div>
                           <div className="mt-1">
                             <span className={kindBadgeClass(sr.kind || "general")}>{kindLabel(sr.kind || "general")}</span>

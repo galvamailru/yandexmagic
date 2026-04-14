@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from app.models.public import TenantYandexToken
 from app.repositories import tenant_queries as tq
 from app.services import yandex_direct
+from app.services.crypto_service import decrypt_text, encrypt_text
+from app.services.yandex_oauth import refresh_access_token
 
 
 async def sync_campaigns_from_yandex(db: Session, tenant_schema: str, access_token: str) -> list[dict[str, Any]]:
@@ -67,4 +69,35 @@ async def pull_stats_for_tenant(db: Session, tenant_schema: str, access_token: s
 
 def get_access_token_for_tenant(db: Session, tenant_id: UUID) -> str | None:
     tok = db.query(TenantYandexToken).filter(TenantYandexToken.tenant_id == tenant_id).first()
-    return tok.access_token if tok else None
+    if not tok:
+        return None
+    access = decrypt_text(tok.access_token)
+    if not access:
+        return None
+    return access
+
+
+async def ensure_valid_access_token(db: Session, tenant_id: UUID) -> str | None:
+    tok = db.query(TenantYandexToken).filter(TenantYandexToken.tenant_id == tenant_id).first()
+    if not tok:
+        return None
+    access = decrypt_text(tok.access_token)
+    if not access:
+        return None
+    if tok.expires_at and tok.expires_at <= datetime.now(timezone.utc) + timedelta(minutes=5):
+        refresh = decrypt_text(tok.refresh_token)
+        if refresh:
+            try:
+                refreshed = await refresh_access_token(refresh)
+                new_access = str(refreshed.get("access_token") or access)
+                tok.access_token = encrypt_text(new_access)
+                if refreshed.get("refresh_token"):
+                    tok.refresh_token = encrypt_text(str(refreshed["refresh_token"]))
+                if refreshed.get("expires_in"):
+                    tok.expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(refreshed["expires_in"]))
+                db.add(tok)
+                db.commit()
+                return new_access
+            except Exception:  # noqa: BLE001
+                return access
+    return access

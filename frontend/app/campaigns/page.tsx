@@ -78,6 +78,16 @@ export default function CampaignsPage() {
     }
   }
 
+  async function setState(id: string, state: "ON" | "SUSPENDED") {
+    try {
+      await apiFetch(`/api/campaigns/${id}/state`, { method: "PATCH", body: JSON.stringify({ state }) });
+      toast.success(state === "ON" ? "Кампания возобновлена" : "Кампания приостановлена");
+      await load();
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }
+
   async function genRec(id: string) {
     try {
       await apiFetch(`/api/campaigns/${id}/recommendations/generate`, { method: "POST" });
@@ -162,6 +172,15 @@ export default function CampaignsPage() {
                       </div>
                     </td>
                     <td className="py-3 space-x-2 whitespace-nowrap">
+                      {c.state === "ON" ? (
+                        <Button size="sm" variant="outline" onClick={() => setState(c.id, "SUSPENDED")}>
+                          Пауза
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => setState(c.id, "ON")}>
+                          Возобновить
+                        </Button>
+                      )}
                       <Button size="sm" variant="outline" asChild>
                         <Link href={`/campaigns/${c.id}`}>Открыть</Link>
                       </Button>

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 from typing import Any
+import asyncio
 
 import httpx
 
@@ -26,6 +27,25 @@ def _headers(token: str) -> dict[str, str]:
     }
 
 
+async def _post_with_retry(url: str, token: str, body: dict[str, Any], timeout: float = 60.0) -> httpx.Response | None:
+    delays = [0.4, 1.0, 2.0]
+    for i, delay in enumerate(delays):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.post(url, headers=_headers(token), json=body)
+                if r.status_code in (429, 500, 502, 503, 504):
+                    if i < len(delays) - 1:
+                        await asyncio.sleep(delay)
+                        continue
+                return r
+        except Exception:  # noqa: BLE001
+            if i < len(delays) - 1:
+                await asyncio.sleep(delay)
+                continue
+            return None
+    return None
+
+
 async def campaigns_get(token: str) -> list[dict[str, Any]]:
     if settings.YANDEX_MOCK:
         return [
@@ -39,11 +59,11 @@ async def campaigns_get(token: str) -> list[dict[str, Any]]:
             "FieldNames": ["Id", "Name", "State", "Status", "DailyBudget"],
         },
     }
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(f"{API}campaigns", headers=_headers(token), json=body)
-        r.raise_for_status()
-        data = r.json()
-        return data.get("result", {}).get("Campaigns", []) or []
+    r = await _post_with_retry(f"{API}campaigns", token, body)
+    if not r or r.status_code >= 400:
+        return []
+    data = r.json()
+    return data.get("result", {}).get("Campaigns", []) or []
 
 
 async def reports_campaign_daily(token: str, campaign_ids: list[int], day_from: date, day_to: date) -> list[dict[str, Any]]:
@@ -79,12 +99,10 @@ async def reports_campaign_daily(token: str, campaign_ids: list[int], day_from: 
     }
     # Reports API is two-step: create report then download — simplified mock path for real impl would use offline report queue.
     # MVP: use keywordless aggregate via simplified placeholder — return empty to avoid blocking.
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        r = await client.post(f"{API}reports", headers=_headers(token), json=body)
-        if r.status_code >= 400:
-            return []
-        # Real implementation parses TSV from report URL; keep empty for non-mock without full pipeline.
+    r = await _post_with_retry(f"{API}reports", token, body, timeout=120.0)
+    if not r or r.status_code >= 400:
         return []
+    return []
 
 
 async def keyword_performance_rows(
@@ -124,11 +142,10 @@ async def keyword_performance_rows(
             "FieldNames": ["Id", "Keyword", "CampaignId", "Bid", "Status", "Statistics"],
         },
     }
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(f"{API}keywords", headers=_headers(token), json=body)
-        if r.status_code >= 400:
-            return []
-        return r.json().get("result", {}).get("Keywords", []) or []
+    r = await _post_with_retry(f"{API}keywords", token, body)
+    if not r or r.status_code >= 400:
+        return []
+    return r.json().get("result", {}).get("Keywords", []) or []
 
 
 async def keywords_suspend(token: str, keyword_ids: list[int]) -> bool:
@@ -140,29 +157,110 @@ async def keywords_suspend(token: str, keyword_ids: list[int]) -> bool:
             "SelectionCriteria": {"Ids": keyword_ids},
         },
     }
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(f"{API}keywords", headers=_headers(token), json=body)
-        return r.status_code < 400
+    r = await _post_with_retry(f"{API}keywords", token, body)
+    return bool(r and r.status_code < 400)
+
+
+async def keywords_resume(token: str, keyword_ids: list[int]) -> bool:
+    if settings.YANDEX_MOCK or not keyword_ids:
+        return True
+    body = {
+        "method": "resume",
+        "params": {"SelectionCriteria": {"Ids": keyword_ids}},
+    }
+    r = await _post_with_retry(f"{API}keywords", token, body)
+    return bool(r and r.status_code < 400)
 
 
 async def keywords_set_bids(token: str, items: list[dict[str, Any]]) -> bool:
     if settings.YANDEX_MOCK or not items:
         return True
     body = {"method": "setBids", "params": {"Bids": items}}
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(f"{API}keywords", headers=_headers(token), json=body)
-        return r.status_code < 400
+    r = await _post_with_retry(f"{API}keywords", token, body)
+    return bool(r and r.status_code < 400)
 
 
 async def campaigns_add(token: str, campaign_spec: dict[str, Any]) -> int | None:
     if settings.YANDEX_MOCK:
         return 9000 + int(json.dumps(campaign_spec, sort_keys=True)[:4].encode().hex()[:4], 16) % 10000
     body = {"method": "add", "params": {"Campaigns": [campaign_spec]}}
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(f"{API}campaigns", headers=_headers(token), json=body)
-        if r.status_code >= 400:
-            return None
-        res = r.json().get("result", {}).get("AddResults", [])
-        if res and "Id" in res[0]:
-            return int(res[0]["Id"])
+    r = await _post_with_retry(f"{API}campaigns", token, body)
+    if not r or r.status_code >= 400:
         return None
+    res = r.json().get("result", {}).get("AddResults", [])
+    if res and "Id" in res[0]:
+        return int(res[0]["Id"])
+    return None
+
+
+async def campaigns_suspend(token: str, campaign_ids: list[int]) -> bool:
+    if settings.YANDEX_MOCK or not campaign_ids:
+        return True
+    body = {"method": "suspend", "params": {"SelectionCriteria": {"Ids": campaign_ids}}}
+    r = await _post_with_retry(f"{API}campaigns", token, body)
+    return bool(r and r.status_code < 400)
+
+
+async def campaigns_resume(token: str, campaign_ids: list[int]) -> bool:
+    if settings.YANDEX_MOCK or not campaign_ids:
+        return True
+    body = {"method": "resume", "params": {"SelectionCriteria": {"Ids": campaign_ids}}}
+    r = await _post_with_retry(f"{API}campaigns", token, body)
+    return bool(r and r.status_code < 400)
+
+
+async def ad_performance_rows(token: str, campaign_ids: list[int]) -> list[dict[str, Any]]:
+    if settings.YANDEX_MOCK:
+        rows = []
+        for cid in campaign_ids:
+            rows.extend(
+                [
+                    {
+                        "CampaignId": cid,
+                        "Id": cid * 10 + 1,
+                        "Title": "Скидка 10% на монтаж",
+                        "State": "ON",
+                        "Cost": 420.0,
+                        "Clicks": 35,
+                        "Impressions": 1800,
+                    },
+                    {
+                        "CampaignId": cid,
+                        "Id": cid * 10 + 2,
+                        "Title": "Бесплатный выезд замерщика",
+                        "State": "SUSPENDED",
+                        "Cost": 110.0,
+                        "Clicks": 8,
+                        "Impressions": 640,
+                    },
+                ]
+            )
+        return rows
+    body = {
+        "method": "get",
+        "params": {"SelectionCriteria": {"CampaignIds": campaign_ids}, "FieldNames": ["Id", "CampaignId", "State", "Status"]},
+    }
+    r = await _post_with_retry(f"{API}ads", token, body)
+    if not r or r.status_code >= 400:
+        return []
+    ads = r.json().get("result", {}).get("Ads", []) or []
+    # In non-mock mode we do not synthesize fake titles/metrics.
+    # Return only raw API fields; optional metrics may be absent.
+    out: list[dict[str, Any]] = []
+    for a in ads:
+        title = ""
+        text_ad = a.get("TextAd") if isinstance(a, dict) else None
+        if isinstance(text_ad, dict):
+            title = str(text_ad.get("Title") or "")
+        out.append(
+            {
+                "CampaignId": a.get("CampaignId"),
+                "Id": a.get("Id"),
+                "Title": title,
+                "State": a.get("State") or a.get("Status") or "",
+                "Cost": a.get("Cost"),
+                "Clicks": a.get("Clicks"),
+                "Impressions": a.get("Impressions"),
+            }
+        )
+    return out

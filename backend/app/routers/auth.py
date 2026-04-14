@@ -12,6 +12,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models.public import Tenant, TenantMembership, TenantYandexToken, User
 from app.schemas.common import OAuthCallbackBody, TokenResponse, YandexAuthUrl
+from app.services.crypto_service import encrypt_text
 from app.services import tenant_schema
 from app.services import yandex_oauth
 
@@ -93,8 +94,8 @@ async def yandex_callback(body: OAuthCallbackBody, db: Annotated[Session, Depend
         db.add(TenantMembership(user_id=user.id, tenant_id=tenant.id, role="owner"))
         tok = TenantYandexToken(
             tenant_id=tenant.id,
-            access_token=access,
-            refresh_token=token_data.get("refresh_token"),
+            access_token=encrypt_text(access),
+            refresh_token=encrypt_text(token_data.get("refresh_token")) if token_data.get("refresh_token") else None,
             expires_at=_expires_at(token_data.get("expires_in")),
         )
         db.add(tok)
@@ -104,15 +105,17 @@ async def yandex_callback(body: OAuthCallbackBody, db: Annotated[Session, Depend
         tenant_id = membership.tenant_id
         tok = db.query(TenantYandexToken).filter(TenantYandexToken.tenant_id == tenant_id).first()
         if tok:
-            tok.access_token = access
-            tok.refresh_token = token_data.get("refresh_token") or tok.refresh_token
+            tok.access_token = encrypt_text(access)
+            tok.refresh_token = (
+                encrypt_text(token_data.get("refresh_token")) if token_data.get("refresh_token") else tok.refresh_token
+            )
             tok.expires_at = _expires_at(token_data.get("expires_in"))
         else:
             db.add(
                 TenantYandexToken(
                     tenant_id=tenant_id,
-                    access_token=access,
-                    refresh_token=token_data.get("refresh_token"),
+                    access_token=encrypt_text(access),
+                    refresh_token=encrypt_text(token_data.get("refresh_token")) if token_data.get("refresh_token") else None,
                     expires_at=_expires_at(token_data.get("expires_in")),
                 )
             )
@@ -160,7 +163,7 @@ def dev_token(db: Annotated[Session, Depends(get_db)]) -> TokenResponse:
         db.add(
             TenantYandexToken(
                 tenant_id=tenant.id,
-                access_token="mock",
+                access_token=encrypt_text("mock"),
             )
         )
         db.commit()

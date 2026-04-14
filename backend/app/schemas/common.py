@@ -71,6 +71,10 @@ class CampaignModeBody(BaseModel):
     mode: str = Field(pattern="^(monitoring|advisor|autopilot)$")
 
 
+class CampaignStateBody(BaseModel):
+    state: str = Field(pattern="^(ON|SUSPENDED)$")
+
+
 class AutopilotRiskBody(BaseModel):
     accept: bool = True
 
@@ -151,3 +155,31 @@ class CampaignDetailOut(BaseModel):
     stats: list[CampaignStatsOut]
     recommendations: list[CampaignRecommendationOut]
     logs: list[AgentLogOut]
+
+
+class AgentSettingsOut(BaseModel):
+    ctr_low_threshold: float
+    ctr_high_threshold: float
+    cost_threshold_rub: float
+    bid_up_factor: float
+    autopilot_dry_run: bool
+    max_changes_per_cycle: int
+
+
+class AgentSettingsUpdate(BaseModel):
+    ctr_low_threshold: float
+    ctr_high_threshold: float
+    cost_threshold_rub: float
+    bid_up_factor: float
+    autopilot_dry_run: bool
+    max_changes_per_cycle: int
+
+
+class ActionHistoryOut(BaseModel):
+    id: UUID
+    campaign_id: UUID | None
+    action_type: str
+    payload_before: dict[str, Any]
+    payload_after: dict[str, Any]
+    correlation_id: str | None
+    created_at: str | None

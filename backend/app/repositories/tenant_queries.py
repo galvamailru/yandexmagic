@@ -10,6 +10,8 @@ from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from app.services.recommendation_normalizer import parse_structured_recommendations, sanitize_unstructured_body
+from app.services.request_context import get_correlation_id
 
 
 def _set_path(db: Session, schema: str) -> None:
@@ -69,6 +71,16 @@ def update_campaign_mode(db: Session, schema: str, campaign_uuid: UUID, mode: st
     res = db.execute(
         text(f'UPDATE "{schema}".campaigns SET mode = :m, updated_at = NOW() WHERE id = :id'),
         {"m": mode, "id": str(campaign_uuid)},
+    )
+    db.commit()
+    return res.rowcount > 0
+
+
+def update_campaign_state(db: Session, schema: str, campaign_uuid: UUID, state: str) -> bool:
+    _set_path(db, schema)
+    res = db.execute(
+        text(f'UPDATE "{schema}".campaigns SET state = :s, updated_at = NOW() WHERE id = :id'),
+        {"s": state, "id": str(campaign_uuid)},
     )
     db.commit()
     return res.rowcount > 0
@@ -286,6 +298,42 @@ LIMIT :lim
     return out
 
 
+def campaign_recommendations_paged(
+    db: Session, schema: str, campaign_uuid: UUID, *, limit: int, offset: int
+) -> tuple[list[dict[str, Any]], int]:
+    _set_path(db, schema)
+    total = db.execute(
+        text(f'SELECT COUNT(*) FROM "{schema}".recommendations WHERE campaign_id = :cid'),
+        {"cid": str(campaign_uuid)},
+    ).scalar() or 0
+    rows = db.execute(
+        text(
+            f'''
+SELECT id, kind, title, body, payload, status, created_at
+FROM "{schema}".recommendations
+WHERE campaign_id = :cid
+ORDER BY created_at DESC
+LIMIT :lim OFFSET :off
+'''
+        ),
+        {"cid": str(campaign_uuid), "lim": limit, "off": offset},
+    ).fetchall()
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "id": str(r[0]),
+                "kind": r[1],
+                "title": r[2],
+                "body": r[3],
+                "payload": json.loads(r[4] or "{}"),
+                "status": r[5],
+                "created_at": r[6].isoformat() if r[6] else None,
+            }
+        )
+    return out, int(total)
+
+
 def mark_recommendations_applied(db: Session, schema: str, ids: list[UUID]) -> None:
     if not ids:
         return
@@ -307,6 +355,10 @@ def insert_agent_log(
     details: dict[str, Any],
 ) -> None:
     _set_path(db, schema)
+    if "correlation_id" not in details:
+        corr = get_correlation_id()
+        if corr:
+            details = {**details, "correlation_id": corr}
     lid = uuid.uuid4()
     db.execute(
         text(
@@ -364,6 +416,53 @@ LIMIT :lim
             }
         )
     return out
+
+
+def list_agent_logs_paged(
+    db: Session, schema: str, campaign_uuid: UUID | None, *, limit: int, offset: int
+) -> tuple[list[dict[str, Any]], int]:
+    _set_path(db, schema)
+    if campaign_uuid:
+        total = db.execute(
+            text(f'SELECT COUNT(*) FROM "{schema}".agent_logs WHERE campaign_id = :cid'),
+            {"cid": str(campaign_uuid)},
+        ).scalar() or 0
+        rows = db.execute(
+            text(
+                f'''
+SELECT id, campaign_id, level, message, details, created_at FROM "{schema}".agent_logs
+WHERE campaign_id = :cid
+ORDER BY created_at DESC
+LIMIT :lim OFFSET :off
+'''
+            ),
+            {"cid": str(campaign_uuid), "lim": limit, "off": offset},
+        ).fetchall()
+    else:
+        total = db.execute(text(f'SELECT COUNT(*) FROM "{schema}".agent_logs')).scalar() or 0
+        rows = db.execute(
+            text(
+                f'''
+SELECT id, campaign_id, level, message, details, created_at FROM "{schema}".agent_logs
+ORDER BY created_at DESC
+LIMIT :lim OFFSET :off
+'''
+            ),
+            {"lim": limit, "off": offset},
+        ).fetchall()
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "id": str(r[0]),
+                "campaign_id": str(r[1]) if r[1] else None,
+                "level": r[2],
+                "message": r[3],
+                "details": json.loads(r[4] or "{}"),
+                "created_at": r[5].isoformat() if r[5] else None,
+            }
+        )
+    return out, int(total)
 
 
 def list_all_campaign_modes(db: Session, schema: str) -> list[tuple[UUID, str, int]]:
@@ -455,3 +554,257 @@ WHERE 1=1
         }
         for r in rows
     ]
+
+
+def get_agent_settings(db: Session, schema: str) -> dict[str, Any]:
+    _set_path(db, schema)
+    row = db.execute(
+        text(
+            f'''
+SELECT ctr_low_threshold, ctr_high_threshold, cost_threshold_rub, bid_up_factor, autopilot_dry_run, max_changes_per_cycle
+FROM "{schema}".agent_settings
+WHERE id=1
+'''
+        )
+    ).fetchone()
+    if not row:
+        return {
+            "ctr_low_threshold": 1.0,
+            "ctr_high_threshold": 5.0,
+            "cost_threshold_rub": 500.0,
+            "bid_up_factor": 1.10,
+            "autopilot_dry_run": True,
+            "max_changes_per_cycle": 30,
+        }
+    return {
+        "ctr_low_threshold": float(row[0]),
+        "ctr_high_threshold": float(row[1]),
+        "cost_threshold_rub": float(row[2]),
+        "bid_up_factor": float(row[3]),
+        "autopilot_dry_run": bool(row[4]),
+        "max_changes_per_cycle": int(row[5]),
+    }
+
+
+def update_agent_settings(db: Session, schema: str, data: dict[str, Any]) -> None:
+    _set_path(db, schema)
+    db.execute(
+        text(
+            f'''
+UPDATE "{schema}".agent_settings SET
+ctr_low_threshold=:low,
+ctr_high_threshold=:high,
+cost_threshold_rub=:cost,
+bid_up_factor=:factor,
+autopilot_dry_run=:dry,
+max_changes_per_cycle=:maxc,
+updated_at=NOW()
+WHERE id=1
+'''
+        ),
+        {
+            "low": data["ctr_low_threshold"],
+            "high": data["ctr_high_threshold"],
+            "cost": data["cost_threshold_rub"],
+            "factor": data["bid_up_factor"],
+            "dry": data["autopilot_dry_run"],
+            "maxc": data["max_changes_per_cycle"],
+        },
+    )
+    db.commit()
+
+
+def insert_action_history(
+    db: Session,
+    schema: str,
+    campaign_id: UUID | None,
+    action_type: str,
+    payload_before: dict[str, Any],
+    payload_after: dict[str, Any],
+    correlation_id: str | None,
+) -> UUID:
+    _set_path(db, schema)
+    hid = uuid.uuid4()
+    db.execute(
+        text(
+            f'''
+INSERT INTO "{schema}".action_history
+(id, campaign_id, action_type, payload_before, payload_after, correlation_id, created_at)
+VALUES (:id, :cid, :t, :pb, :pa, :corr, NOW())
+'''
+        ),
+        {
+            "id": str(hid),
+            "cid": str(campaign_id) if campaign_id else None,
+            "t": action_type,
+            "pb": json.dumps(payload_before, ensure_ascii=False),
+            "pa": json.dumps(payload_after, ensure_ascii=False),
+            "corr": correlation_id,
+        },
+    )
+    db.commit()
+    return hid
+
+
+def recent_action_history(db: Session, schema: str, campaign_id: UUID | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    _set_path(db, schema)
+    if campaign_id:
+        rows = db.execute(
+            text(
+                f'''
+SELECT id, campaign_id, action_type, payload_before, payload_after, correlation_id, created_at
+FROM "{schema}".action_history
+WHERE campaign_id=:cid
+ORDER BY created_at DESC
+LIMIT :lim
+'''
+            ),
+            {"cid": str(campaign_id), "lim": limit},
+        ).fetchall()
+    else:
+        rows = db.execute(
+            text(
+                f'''
+SELECT id, campaign_id, action_type, payload_before, payload_after, correlation_id, created_at
+FROM "{schema}".action_history
+ORDER BY created_at DESC
+LIMIT :lim
+'''
+            ),
+            {"lim": limit},
+        ).fetchall()
+    return [
+        {
+            "id": str(r[0]),
+            "campaign_id": str(r[1]) if r[1] else None,
+            "action_type": r[2],
+            "payload_before": json.loads(r[3] or "{}"),
+            "payload_after": json.loads(r[4] or "{}"),
+            "correlation_id": r[5],
+            "created_at": r[6].isoformat() if r[6] else None,
+        }
+        for r in rows
+    ]
+
+
+def recent_action_history_paged(
+    db: Session, schema: str, campaign_id: UUID | None = None, *, limit: int, offset: int
+) -> tuple[list[dict[str, Any]], int]:
+    _set_path(db, schema)
+    if campaign_id:
+        total = db.execute(
+            text(f'SELECT COUNT(*) FROM "{schema}".action_history WHERE campaign_id=:cid'),
+            {"cid": str(campaign_id)},
+        ).scalar() or 0
+        rows = db.execute(
+            text(
+                f'''
+SELECT id, campaign_id, action_type, payload_before, payload_after, correlation_id, created_at
+FROM "{schema}".action_history
+WHERE campaign_id=:cid
+ORDER BY created_at DESC
+LIMIT :lim OFFSET :off
+'''
+            ),
+            {"cid": str(campaign_id), "lim": limit, "off": offset},
+        ).fetchall()
+    else:
+        total = db.execute(text(f'SELECT COUNT(*) FROM "{schema}".action_history')).scalar() or 0
+        rows = db.execute(
+            text(
+                f'''
+SELECT id, campaign_id, action_type, payload_before, payload_after, correlation_id, created_at
+FROM "{schema}".action_history
+ORDER BY created_at DESC
+LIMIT :lim OFFSET :off
+'''
+            ),
+            {"lim": limit, "off": offset},
+        ).fetchall()
+    return [
+        {
+            "id": str(r[0]),
+            "campaign_id": str(r[1]) if r[1] else None,
+            "action_type": r[2],
+            "payload_before": json.loads(r[3] or "{}"),
+            "payload_after": json.loads(r[4] or "{}"),
+            "correlation_id": r[5],
+            "created_at": r[6].isoformat() if r[6] else None,
+        }
+        for r in rows
+    ], int(total)
+
+
+def normalize_recommendations_for_schema(db: Session, schema: str) -> dict[str, int]:
+    _set_path(db, schema)
+    rows = db.execute(
+        text(
+            f'''
+SELECT id, campaign_id, kind, title, body, payload, status, created_at
+FROM "{schema}".recommendations
+ORDER BY created_at ASC
+'''
+        )
+    ).fetchall()
+
+    normalized = 0
+    split_created = 0
+    for r in rows:
+        rid = str(r[0])
+        campaign_id = str(r[1]) if r[1] else None
+        body = str(r[4] or "")
+        status = str(r[6] or "pending")
+        created_at = r[7]
+
+        parsed = parse_structured_recommendations(body)
+        if parsed:
+            first = parsed[0]
+            db.execute(
+                text(
+                    f'''
+UPDATE "{schema}".recommendations
+SET kind=:kind, title=:title, body=:body, payload=:payload
+WHERE id=:id
+'''
+                ),
+                {
+                    "id": rid,
+                    "kind": first["kind"],
+                    "title": first["title"],
+                    "body": first["body"],
+                    "payload": json.dumps(first["payload"], ensure_ascii=False),
+                },
+            )
+            normalized += 1
+            for extra in parsed[1:]:
+                db.execute(
+                    text(
+                        f'''
+INSERT INTO "{schema}".recommendations
+(id, campaign_id, kind, title, body, payload, status, created_at)
+VALUES (:id, :campaign_id, :kind, :title, :body, :payload, :status, :created_at)
+'''
+                    ),
+                    {
+                        "id": str(uuid.uuid4()),
+                        "campaign_id": campaign_id,
+                        "kind": extra["kind"],
+                        "title": extra["title"],
+                        "body": extra["body"],
+                        "payload": json.dumps(extra["payload"], ensure_ascii=False),
+                        "status": status,
+                        "created_at": created_at,
+                    },
+                )
+                split_created += 1
+        else:
+            clean = sanitize_unstructured_body(body)
+            if clean != body:
+                db.execute(
+                    text(f'UPDATE "{schema}".recommendations SET body=:body WHERE id=:id'),
+                    {"id": rid, "body": clean},
+                )
+                normalized += 1
+
+    db.commit()
+    return {"normalized": normalized, "split_created": split_created, "total": len(rows)}

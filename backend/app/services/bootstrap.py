@@ -2,6 +2,7 @@ from sqlalchemy import text
 
 from app.database import Base, SessionLocal, engine
 from app.models import public as models_public
+from app.services.tenant_schema import create_tenant_schema
 
 
 def init_public_schema() -> None:
@@ -40,6 +41,31 @@ CREATE TABLE IF NOT EXISTS app_settings (
         db.execute(
             text(
                 """
+CREATE TABLE IF NOT EXISTS job_locks (
+    name TEXT PRIMARY KEY,
+    locked_until TIMESTAMPTZ NOT NULL
+);
+"""
+            )
+        )
+        db.execute(
+            text(
+                """
+CREATE TABLE IF NOT EXISTS job_runs (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMPTZ,
+    duration_ms BIGINT,
+    details TEXT NOT NULL DEFAULT '{}'
+);
+"""
+            )
+        )
+        db.execute(
+            text(
+                """
 INSERT INTO app_settings(key, value)
 VALUES ('ai_agent_prompt', :value)
 ON CONFLICT (key) DO NOTHING
@@ -54,6 +80,10 @@ ON CONFLICT (key) DO NOTHING
                 )
             },
         )
+        # Ensure tenant schemas are upgraded with latest tables.
+        tenants = db.query(models_public.Tenant).all()
+        for t in tenants:
+            create_tenant_schema(db, t.schema_name)
         db.commit()
     finally:
         db.close()
