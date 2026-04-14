@@ -21,6 +21,8 @@ from app.schemas.common import (
     RecommendationBulkStatusBody,
     CampaignStateBody,
     CampaignStatsOut,
+    ClientLoginOut,
+    ClientLoginUpdate,
 )
 from app.services import sync_service
 from app.services import yandex_direct
@@ -82,8 +84,13 @@ async def set_state(
     token = await sync_service.ensure_valid_access_token(db, tenant.id)
     if not token:
         raise HTTPException(status_code=400, detail="Yandex not connected")
+    client_login = sync_service.get_client_login_for_tenant(db, tenant.id)
     yc_id = int(c["yandex_campaign_id"])
-    ok = await (yandex_direct.campaigns_resume(token, [yc_id]) if body.state == "ON" else yandex_direct.campaigns_suspend(token, [yc_id]))
+    ok = await (
+        yandex_direct.campaigns_resume(token, [yc_id], client_login=client_login)
+        if body.state == "ON"
+        else yandex_direct.campaigns_suspend(token, [yc_id], client_login=client_login)
+    )
     if not ok:
         raise HTTPException(status_code=502, detail="Failed to update campaign state in Yandex Direct")
     tq.update_campaign_state(db, tenant.schema_name, campaign_id, body.state)
@@ -189,6 +196,7 @@ async def apply_all(
     token = await sync_service.ensure_valid_access_token(db, tenant.id)
     if not token:
         raise HTTPException(status_code=400, detail="Yandex not connected")
+    client_login = sync_service.get_client_login_for_tenant(db, tenant.id)
     pending = tq.pending_recommendations(db, tenant.schema_name, campaign_id)
     applied_ids: list[UUID] = []
     corr = get_correlation_id()
@@ -197,7 +205,7 @@ async def apply_all(
         kid = int(payload.get("keyword_id") or 0)
         action = str(payload.get("action") or "")
         if kid and action == "suspend":
-            await yandex_direct.keywords_suspend(token, [kid])
+            await yandex_direct.keywords_suspend(token, [kid], client_login=client_login)
             tq.insert_action_history(
                 db,
                 tenant.schema_name,
@@ -210,7 +218,9 @@ async def apply_all(
         elif kid and action == "bid_up":
             bid = float(payload.get("new_bid_rub") or 0)
             if bid > 0:
-                await yandex_direct.keywords_set_bids(token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}])
+                await yandex_direct.keywords_set_bids(
+                    token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}], client_login=client_login
+                )
                 tq.insert_action_history(
                     db,
                     tenant.schema_name,
@@ -264,6 +274,7 @@ async def apply_selected(
     token = await sync_service.ensure_valid_access_token(db, tenant.id)
     if not token:
         raise HTTPException(status_code=400, detail="Yandex not connected")
+    client_login = sync_service.get_client_login_for_tenant(db, tenant.id)
     pending = tq.recommendations_by_ids(db, tenant.schema_name, campaign_id, body.recommendation_ids)
     applied_ids: list[UUID] = []
     corr = get_correlation_id()
@@ -274,7 +285,7 @@ async def apply_selected(
         kid = int(payload.get("keyword_id") or 0)
         action = str(payload.get("action") or "")
         if kid and action == "suspend":
-            await yandex_direct.keywords_suspend(token, [kid])
+            await yandex_direct.keywords_suspend(token, [kid], client_login=client_login)
             tq.insert_action_history(
                 db,
                 tenant.schema_name,
@@ -287,7 +298,9 @@ async def apply_selected(
         elif kid and action == "bid_up":
             bid = float(payload.get("new_bid_rub") or 0)
             if bid > 0:
-                await yandex_direct.keywords_set_bids(token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}])
+                await yandex_direct.keywords_set_bids(
+                    token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}], client_login=client_login
+                )
                 tq.insert_action_history(
                     db,
                     tenant.schema_name,
@@ -352,7 +365,8 @@ async def autopilot_preview(
     token = await sync_service.ensure_valid_access_token(db, tenant.id)
     if not token:
         raise HTTPException(status_code=400, detail="Yandex not connected")
-    rows = await yandex_direct.keyword_performance_rows(token, [int(c["yandex_campaign_id"])])
+    client_login = sync_service.get_client_login_for_tenant(db, tenant.id)
+    rows = await yandex_direct.keyword_performance_rows(token, [int(c["yandex_campaign_id"])], client_login=client_login)
     cfg = tq.get_agent_settings(db, tenant.schema_name)
     items: list[dict[str, object]] = []
     for r in rows:
@@ -404,6 +418,7 @@ async def undo_last_action(
     token = await sync_service.ensure_valid_access_token(db, tenant.id)
     if not token:
         raise HTTPException(status_code=400, detail="Yandex not connected")
+    client_login = sync_service.get_client_login_for_tenant(db, tenant.id)
     rows = tq.recent_action_history(db, tenant.schema_name, campaign_id=campaign_id, limit=1)
     if not rows:
         raise HTTPException(status_code=404, detail="No actions to rollback")
@@ -413,12 +428,14 @@ async def undo_last_action(
     if action_type == "suspend_keyword":
         kid = int(before.get("keyword_id") or 0)
         if kid:
-            await yandex_direct.keywords_resume(token, [kid])
+            await yandex_direct.keywords_resume(token, [kid], client_login=client_login)
     elif action_type == "set_bid":
         kid = int(before.get("keyword_id") or 0)
         bid = float(before.get("bid_rub") or 0)
         if kid and bid > 0:
-            await yandex_direct.keywords_set_bids(token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}])
+            await yandex_direct.keywords_set_bids(
+                token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}], client_login=client_login
+            )
     tq.insert_agent_log(
         db,
         tenant.schema_name,
@@ -506,7 +523,8 @@ async def campaign_keywords(
     token = await sync_service.ensure_valid_access_token(db, tenant.id)
     if not token:
         raise HTTPException(status_code=400, detail="Yandex not connected")
-    rows = await yandex_direct.keyword_performance_rows(token, [int(c["yandex_campaign_id"])])
+    client_login = sync_service.get_client_login_for_tenant(db, tenant.id)
+    rows = await yandex_direct.keyword_performance_rows(token, [int(c["yandex_campaign_id"])], client_login=client_login)
     items = [
         {
             "id": int(r.get("Id") or 0),
@@ -538,7 +556,8 @@ async def campaign_ads(
     token = await sync_service.ensure_valid_access_token(db, tenant.id)
     if not token:
         raise HTTPException(status_code=400, detail="Yandex not connected")
-    rows = await yandex_direct.ad_performance_rows(token, [int(c["yandex_campaign_id"])])
+    client_login = sync_service.get_client_login_for_tenant(db, tenant.id)
+    rows = await yandex_direct.ad_performance_rows(token, [int(c["yandex_campaign_id"])], client_login=client_login)
     items = [
         {
             "id": int(r.get("Id") or 0),
@@ -553,3 +572,22 @@ async def campaign_ads(
     total = len(items)
     start = (page - 1) * limit
     return {"items": items[start : start + limit], "total": total, "page": page, "limit": limit}
+
+
+@router.get("/client-login", response_model=ClientLoginOut)
+def get_client_login(
+    db: Annotated[Session, Depends(get_db)],
+    tenant: Annotated[Tenant, Depends(require_tenant_access)],
+) -> ClientLoginOut:
+    return ClientLoginOut(client_login=sync_service.get_client_login_for_tenant(db, tenant.id))
+
+
+@router.put("/client-login", response_model=ClientLoginOut)
+def update_client_login(
+    body: ClientLoginUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    tenant: Annotated[Tenant, Depends(require_tenant_access)],
+    _: Annotated[User, Depends(require_tenant_manager_or_owner)],
+) -> ClientLoginOut:
+    sync_service.set_client_login_for_tenant(db, tenant.id, body.client_login)
+    return ClientLoginOut(client_login=sync_service.get_client_login_for_tenant(db, tenant.id))

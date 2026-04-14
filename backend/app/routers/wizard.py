@@ -11,6 +11,7 @@ from app.models.public import Tenant, User
 from app.repositories import tenant_queries as tq
 from app.schemas.common import WizardLaunchBody, WizardStep1, WizardStep2Result, WizardStep3Body
 from app.services import site_scraper, wordstat
+from app.services import sync_service
 from app.services.sync_service import ensure_valid_access_token
 from app.services.openai_service import generate_ad_texts
 from app.services.wizard_store import get_wizard, upsert_wizard
@@ -111,7 +112,8 @@ async def launch(
         "StartDate": __import__("datetime").date.today().isoformat(),
         "TextCampaign": {"BiddingStrategy": {"Search": {"BiddingStrategyType": "SERVING_OFF"}}},
     }
-    yid = await yandex_direct.campaigns_add(access_token, spec)
+    client_login = sync_service.get_client_login_for_tenant(db, tenant.id)
+    yid = await yandex_direct.campaigns_add(access_token, spec, client_login=client_login)
     if not yid:
         raise HTTPException(status_code=502, detail="Не удалось создать кампанию в Директе")
     local = tq.upsert_campaign(db, tenant.schema_name, int(yid), name, "ON", mode="autopilot")

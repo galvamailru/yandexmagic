@@ -21,7 +21,9 @@ async def sync_campaigns_from_yandex(db: Session, tenant_schema: str, access_tok
     if not settings.YANDEX_MOCK:
         # Cleanup stale demo rows created while mock mode was enabled.
         tq.delete_mock_campaigns(db, tenant_schema)
-    rows, meta = await yandex_direct.campaigns_get_with_meta(access_token)
+    tenant_token = db.query(TenantYandexToken).filter(TenantYandexToken.tenant.has(schema_name=tenant_schema)).first()
+    client_login = tenant_token.client_login if tenant_token else None
+    rows, meta = await yandex_direct.campaigns_get_with_meta(access_token, client_login=client_login)
     level = "info"
     message = "Синхронизация кампаний из Yandex Direct выполнена"
     if int(meta.get("count") or 0) == 0:
@@ -56,7 +58,9 @@ async def pull_stats_for_tenant(db: Session, tenant_schema: str, access_token: s
     ids = [int(c["yandex_campaign_id"]) for c in camps]
     day_to = date.today()
     day_from = day_to - timedelta(days=7)
-    rows = await yandex_direct.reports_campaign_daily(access_token, ids, day_from, day_to)
+    tenant_token = db.query(TenantYandexToken).filter(TenantYandexToken.tenant.has(schema_name=tenant_schema)).first()
+    client_login = tenant_token.client_login if tenant_token else None
+    rows = await yandex_direct.reports_campaign_daily(access_token, ids, day_from, day_to, client_login=client_login)
     if not rows:
         # Fallback: one synthetic row per campaign for chart when Reports empty
         for c in camps:
@@ -100,6 +104,23 @@ def get_access_token_for_tenant(db: Session, tenant_id: UUID) -> str | None:
     if not access:
         return None
     return access
+
+
+def get_client_login_for_tenant(db: Session, tenant_id: UUID) -> str | None:
+    tok = db.query(TenantYandexToken).filter(TenantYandexToken.tenant_id == tenant_id).first()
+    if not tok:
+        return None
+    value = (tok.client_login or "").strip()
+    return value or None
+
+
+def set_client_login_for_tenant(db: Session, tenant_id: UUID, client_login: str | None) -> None:
+    tok = db.query(TenantYandexToken).filter(TenantYandexToken.tenant_id == tenant_id).first()
+    if not tok:
+        return
+    tok.client_login = (client_login or "").strip() or None
+    db.add(tok)
+    db.commit()
 
 
 async def ensure_valid_access_token(db: Session, tenant_id: UUID) -> str | None:

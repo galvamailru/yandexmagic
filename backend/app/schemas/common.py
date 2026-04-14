@@ -192,3 +192,11 @@ class RecommendationBulkStatusBody(BaseModel):
 
 class RecommendationBulkApplyBody(BaseModel):
     recommendation_ids: list[UUID]
+
+
+class ClientLoginOut(BaseModel):
+    client_login: str | None
+
+
+class ClientLoginUpdate(BaseModel):
+    client_login: str | None = None

@@ -19,20 +19,26 @@ settings = get_settings()
 API = "https://api.direct.yandex.com/json/v5/"
 
 
-def _headers(token: str) -> dict[str, str]:
-    return {
+def _headers(token: str, client_login: str | None = None) -> dict[str, str]:
+    headers = {
         "Authorization": f"Bearer {token}",
         "Accept-Language": "ru",
         "Content-Type": "application/json; charset=utf-8",
     }
+    resolved_client_login = (client_login or "").strip()
+    if resolved_client_login:
+        headers["Client-Login"] = resolved_client_login
+    return headers
 
 
-async def _post_with_retry(url: str, token: str, body: dict[str, Any], timeout: float = 60.0) -> httpx.Response | None:
+async def _post_with_retry(
+    url: str, token: str, body: dict[str, Any], timeout: float = 60.0, client_login: str | None = None
+) -> httpx.Response | None:
     delays = [0.4, 1.0, 2.0]
     for i, delay in enumerate(delays):
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                r = await client.post(url, headers=_headers(token), json=body)
+                r = await client.post(url, headers=_headers(token, client_login=client_login), json=body)
                 if r.status_code in (429, 500, 502, 503, 504):
                     if i < len(delays) - 1:
                         await asyncio.sleep(delay)
@@ -46,12 +52,12 @@ async def _post_with_retry(url: str, token: str, body: dict[str, Any], timeout: 
     return None
 
 
-async def campaigns_get(token: str) -> list[dict[str, Any]]:
-    rows, _meta = await campaigns_get_with_meta(token)
+async def campaigns_get(token: str, client_login: str | None = None) -> list[dict[str, Any]]:
+    rows, _meta = await campaigns_get_with_meta(token, client_login=client_login)
     return rows
 
 
-async def campaigns_get_with_meta(token: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+async def campaigns_get_with_meta(token: str, client_login: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if settings.YANDEX_MOCK:
         rows = [
             {"Id": 1001, "Name": "Демо: поиск", "State": "ON", "Status": "ACCEPTED"},
@@ -65,7 +71,7 @@ async def campaigns_get_with_meta(token: str) -> tuple[list[dict[str, Any]], dic
             "FieldNames": ["Id", "Name", "State", "Status", "DailyBudget"],
         },
     }
-    r = await _post_with_retry(f"{API}campaigns", token, body)
+    r = await _post_with_retry(f"{API}campaigns", token, body, client_login=client_login)
     if not r:
         return [], {"source": "api", "http_status": None, "count": 0, "error": "network_or_timeout"}
     if r.status_code >= 400:
@@ -81,7 +87,9 @@ async def campaigns_get_with_meta(token: str) -> tuple[list[dict[str, Any]], dic
     return rows, {"source": "api", "http_status": r.status_code, "count": len(rows)}
 
 
-async def reports_campaign_daily(token: str, campaign_ids: list[int], day_from: date, day_to: date) -> list[dict[str, Any]]:
+async def reports_campaign_daily(
+    token: str, campaign_ids: list[int], day_from: date, day_to: date, client_login: str | None = None
+) -> list[dict[str, Any]]:
     """Return rows with CampaignId, Date, Cost, Clicks, Impressions."""
     if settings.YANDEX_MOCK:
         out: list[dict[str, Any]] = []
@@ -114,14 +122,14 @@ async def reports_campaign_daily(token: str, campaign_ids: list[int], day_from: 
     }
     # Reports API is two-step: create report then download — simplified mock path for real impl would use offline report queue.
     # MVP: use keywordless aggregate via simplified placeholder — return empty to avoid blocking.
-    r = await _post_with_retry(f"{API}reports", token, body, timeout=120.0)
+    r = await _post_with_retry(f"{API}reports", token, body, timeout=120.0, client_login=client_login)
     if not r or r.status_code >= 400:
         return []
     return []
 
 
 async def keyword_performance_rows(
-    token: str, campaign_ids: list[int]
+    token: str, campaign_ids: list[int], client_login: str | None = None
 ) -> list[dict[str, Any]]:
     """Keyword-level stats for autopilot rules (mock fills CTR/cost)."""
     if settings.YANDEX_MOCK:
@@ -157,13 +165,13 @@ async def keyword_performance_rows(
             "FieldNames": ["Id", "Keyword", "CampaignId", "Bid", "Status", "Statistics"],
         },
     }
-    r = await _post_with_retry(f"{API}keywords", token, body)
+    r = await _post_with_retry(f"{API}keywords", token, body, client_login=client_login)
     if not r or r.status_code >= 400:
         return []
     return r.json().get("result", {}).get("Keywords", []) or []
 
 
-async def keywords_suspend(token: str, keyword_ids: list[int]) -> bool:
+async def keywords_suspend(token: str, keyword_ids: list[int], client_login: str | None = None) -> bool:
     if settings.YANDEX_MOCK or not keyword_ids:
         return True
     body = {
@@ -172,34 +180,34 @@ async def keywords_suspend(token: str, keyword_ids: list[int]) -> bool:
             "SelectionCriteria": {"Ids": keyword_ids},
         },
     }
-    r = await _post_with_retry(f"{API}keywords", token, body)
+    r = await _post_with_retry(f"{API}keywords", token, body, client_login=client_login)
     return bool(r and r.status_code < 400)
 
 
-async def keywords_resume(token: str, keyword_ids: list[int]) -> bool:
+async def keywords_resume(token: str, keyword_ids: list[int], client_login: str | None = None) -> bool:
     if settings.YANDEX_MOCK or not keyword_ids:
         return True
     body = {
         "method": "resume",
         "params": {"SelectionCriteria": {"Ids": keyword_ids}},
     }
-    r = await _post_with_retry(f"{API}keywords", token, body)
+    r = await _post_with_retry(f"{API}keywords", token, body, client_login=client_login)
     return bool(r and r.status_code < 400)
 
 
-async def keywords_set_bids(token: str, items: list[dict[str, Any]]) -> bool:
+async def keywords_set_bids(token: str, items: list[dict[str, Any]], client_login: str | None = None) -> bool:
     if settings.YANDEX_MOCK or not items:
         return True
     body = {"method": "setBids", "params": {"Bids": items}}
-    r = await _post_with_retry(f"{API}keywords", token, body)
+    r = await _post_with_retry(f"{API}keywords", token, body, client_login=client_login)
     return bool(r and r.status_code < 400)
 
 
-async def campaigns_add(token: str, campaign_spec: dict[str, Any]) -> int | None:
+async def campaigns_add(token: str, campaign_spec: dict[str, Any], client_login: str | None = None) -> int | None:
     if settings.YANDEX_MOCK:
         return 9000 + int(json.dumps(campaign_spec, sort_keys=True)[:4].encode().hex()[:4], 16) % 10000
     body = {"method": "add", "params": {"Campaigns": [campaign_spec]}}
-    r = await _post_with_retry(f"{API}campaigns", token, body)
+    r = await _post_with_retry(f"{API}campaigns", token, body, client_login=client_login)
     if not r or r.status_code >= 400:
         return None
     res = r.json().get("result", {}).get("AddResults", [])
@@ -208,23 +216,23 @@ async def campaigns_add(token: str, campaign_spec: dict[str, Any]) -> int | None
     return None
 
 
-async def campaigns_suspend(token: str, campaign_ids: list[int]) -> bool:
+async def campaigns_suspend(token: str, campaign_ids: list[int], client_login: str | None = None) -> bool:
     if settings.YANDEX_MOCK or not campaign_ids:
         return True
     body = {"method": "suspend", "params": {"SelectionCriteria": {"Ids": campaign_ids}}}
-    r = await _post_with_retry(f"{API}campaigns", token, body)
+    r = await _post_with_retry(f"{API}campaigns", token, body, client_login=client_login)
     return bool(r and r.status_code < 400)
 
 
-async def campaigns_resume(token: str, campaign_ids: list[int]) -> bool:
+async def campaigns_resume(token: str, campaign_ids: list[int], client_login: str | None = None) -> bool:
     if settings.YANDEX_MOCK or not campaign_ids:
         return True
     body = {"method": "resume", "params": {"SelectionCriteria": {"Ids": campaign_ids}}}
-    r = await _post_with_retry(f"{API}campaigns", token, body)
+    r = await _post_with_retry(f"{API}campaigns", token, body, client_login=client_login)
     return bool(r and r.status_code < 400)
 
 
-async def ad_performance_rows(token: str, campaign_ids: list[int]) -> list[dict[str, Any]]:
+async def ad_performance_rows(token: str, campaign_ids: list[int], client_login: str | None = None) -> list[dict[str, Any]]:
     if settings.YANDEX_MOCK:
         rows = []
         for cid in campaign_ids:
@@ -255,7 +263,7 @@ async def ad_performance_rows(token: str, campaign_ids: list[int]) -> list[dict[
         "method": "get",
         "params": {"SelectionCriteria": {"CampaignIds": campaign_ids}, "FieldNames": ["Id", "CampaignId", "State", "Status"]},
     }
-    r = await _post_with_retry(f"{API}ads", token, body)
+    r = await _post_with_retry(f"{API}ads", token, body, client_login=client_login)
     if not r or r.status_code >= 400:
         return []
     ads = r.json().get("result", {}).get("Ads", []) or []

@@ -11,7 +11,12 @@ from app.services.notifier import send_alert
 from app.services.request_context import get_correlation_id
 from app.services import yandex_direct
 from app.services.openai_service import generate_recommendations
-from app.services.sync_service import ensure_valid_access_token, pull_stats_for_tenant, sync_campaigns_from_yandex
+from app.services.sync_service import (
+    ensure_valid_access_token,
+    get_client_login_for_tenant,
+    pull_stats_for_tenant,
+    sync_campaigns_from_yandex,
+)
 
 settings = get_settings()
 
@@ -32,6 +37,7 @@ async def run_for_tenant(db: Session, tenant: Tenant) -> None:
     token = await ensure_valid_access_token(db, tenant.id)
     if not token:
         return
+    client_login = get_client_login_for_tenant(db, tenant.id)
     await sync_campaigns_from_yandex(db, tenant.schema_name, token)
     await pull_stats_for_tenant(db, tenant.schema_name, token)
 
@@ -41,7 +47,7 @@ async def run_for_tenant(db: Session, tenant: Tenant) -> None:
     yandex_ids = list(yandex_to_local.keys())
     if not yandex_ids:
         return
-    kw_rows = await yandex_direct.keyword_performance_rows(token, yandex_ids)
+    kw_rows = await yandex_direct.keyword_performance_rows(token, yandex_ids, client_login=client_login)
 
     for yid, (local_id, mode) in yandex_to_local.items():
         if mode != "advisor":
@@ -113,7 +119,7 @@ async def run_for_tenant(db: Session, tenant: Tenant) -> None:
 
         if ctr < low_ctr and cost > cost_thr and kid:
             if not dry_run:
-                await yandex_direct.keywords_suspend(token, [kid])
+                await yandex_direct.keywords_suspend(token, [kid], client_login=client_login)
             tq.insert_agent_log(
                 db,
                 tenant.schema_name,
@@ -138,6 +144,7 @@ async def run_for_tenant(db: Session, tenant: Tenant) -> None:
                 await yandex_direct.keywords_set_bids(
                     token,
                     [{"KeywordId": kid, "Bid": int(new_bid * 1_000_000)}],
+                    client_login=client_login,
                 )
             tq.insert_agent_log(
                 db,

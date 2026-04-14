@@ -30,6 +30,14 @@ CREATE TABLE IF NOT EXISTS wizard_sessions (
         db.execute(
             text(
                 """
+ALTER TABLE tenant_yandex_tokens
+ADD COLUMN IF NOT EXISTS client_login TEXT
+"""
+            )
+        )
+        db.execute(
+            text(
+                """
 CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
