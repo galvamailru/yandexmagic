@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any
 
 from openai import OpenAI
@@ -30,7 +31,14 @@ def generate_recommendations(stats_summary: str, db: Session | None = None) -> l
         ]
     system_prompt = get_ai_prompt(db) if db is not None else (
         "Ты эксперт по Яндекс Директ. Ответь ТОЛЬКО JSON-массивом объектов "
-        "{kind,title,body,payload} с конкретными рекомендациями по русски."
+        "{kind,title,body,payload} без markdown и текста вне JSON. "
+        "Payload contract обязателен: payload всегда объект; "
+        "для kind=keyword укажи action и keyword_id; "
+        "для kind=ad укажи action и ad_id; "
+        "для kind=bid укажи action, keyword_id, percent; "
+        "для kind=budget укажи action, amount, period; "
+        "для kind=general укажи action=none и note. "
+        "Если данных недостаточно, верни один объект с title='Анализ'."
     )
     resp = _client().chat.completions.create(
         model=settings.OPENAI_MODEL,
@@ -47,7 +55,13 @@ def generate_recommendations(stats_summary: str, db: Session | None = None) -> l
     parsed = parse_structured_recommendations(text)
     if parsed:
         return parsed
-    return [{"kind": "general", "title": "Анализ", "body": sanitize_unstructured_body(text)[:2000], "payload": {}}]
+    # Keep one strict fallback shape so UI format is always uniform.
+    body = sanitize_unstructured_body(text)
+    body = re.sub(r"\s+", " ", body).strip()[:1200]
+    low = body.lower()
+    if "не могу проанализировать" in low or "нет доступа" in low:
+        body = "Анализ не сформирован в структурированном формате. Проверьте доступ к данным и повторите генерацию."
+    return [{"kind": "general", "title": "Анализ", "body": body, "payload": {"format": "fallback"}}]
 
 
 def generate_ad_texts(business_summary: str, keywords: list[str]) -> list[dict[str, str]]:

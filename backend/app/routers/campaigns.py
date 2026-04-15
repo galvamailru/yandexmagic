@@ -163,7 +163,19 @@ async def generate_recs(
     c = tq.get_campaign_by_id(db, tenant.schema_name, campaign_id)
     if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")
-    summary = f"Кампания {c['name']} (yandex id {c['yandex_campaign_id']}), режим советник."
+    token = await sync_service.ensure_valid_access_token(db, tenant.id)
+    if not token:
+        raise HTTPException(status_code=400, detail="Yandex not connected")
+    client_login = sync_service.get_client_login_for_tenant(db, tenant.id)
+    rows = await yandex_direct.keyword_performance_rows(token, [int(c["yandex_campaign_id"])], client_login=client_login)
+    lines = [
+        f"- {r.get('Keyword')}: CTR={float(r.get('Ctr') or 0):.2f}%, расход={float(r.get('Cost') or 0):.2f} ₽, id={r.get('Id')}"
+        for r in rows[:50]
+    ]
+    summary = (
+        f"Кампания {c['name']} (yandex id {c['yandex_campaign_id']}), режим советник.\n"
+        + ("Статистика по ключевым фразам:\n" + "\n".join(lines) if lines else "Статистика по ключевым фразам отсутствует.")
+    )
     items = generate_recommendations(summary, db=db)
     for it in items:
         tq.insert_recommendation(

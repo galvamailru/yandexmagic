@@ -140,36 +140,3 @@ def _expires_at(expires_in: object) -> datetime | None:
     return datetime.now(timezone.utc) + timedelta(seconds=sec)
 
 
-@router.post("/dev-token", response_model=TokenResponse, include_in_schema=False)
-def dev_token(db: Annotated[Session, Depends(get_db)]) -> TokenResponse:
-    """Local-only helper when OAuth is not configured."""
-    if _oauth_configured():
-        raise HTTPException(status_code=404, detail="OAuth is configured, dev-token is disabled")
-    user = db.query(User).first()
-    if not user:
-        user = User(yandex_id="dev", login="dev", is_platform_admin=True)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    tenant = db.query(Tenant).first()
-    if not tenant:
-        schema_name = f"tenant_{user.id.hex}"
-        tenant = Tenant(name="Dev tenant", schema_name=schema_name)
-        db.add(tenant)
-        db.commit()
-        db.refresh(tenant)
-        tenant_schema.create_tenant_schema(db, schema_name)
-        db.add(TenantMembership(user_id=user.id, tenant_id=tenant.id, role="owner"))
-        db.add(
-            TenantYandexToken(
-                tenant_id=tenant.id,
-                access_token=encrypt_text("mock"),
-            )
-        )
-        db.commit()
-    jwt = create_access_token(
-        user_id=user.id,
-        tenant_id=tenant.id,
-        is_platform_admin=user.is_platform_admin,
-    )
-    return TokenResponse(access_token=jwt)
