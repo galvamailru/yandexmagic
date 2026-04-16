@@ -39,7 +39,6 @@ type HistoryItem = {
 };
 type KeywordRow = { id: number; keyword: string; state: string; bid_rub: number; cost_rub: number; ctr: number };
 type AdRow = { id: number; title: string; state: string; cost_rub: number; clicks: number; impressions: number };
-type ClientLogin = { client_login: string | null };
 
 export default function CampaignDetailPage() {
   const router = useRouter();
@@ -72,8 +71,6 @@ export default function CampaignDetailPage() {
   const [ads, setAds] = useState<AdRow[]>([]);
   const [adTotal, setAdTotal] = useState(0);
   const [selectedRecIds, setSelectedRecIds] = useState<string[]>([]);
-  const [clientLogin, setClientLogin] = useState("");
-  const [savingClientLogin, setSavingClientLogin] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
@@ -84,10 +81,9 @@ export default function CampaignDetailPage() {
       try {
         const me = await apiFetch<{ is_platform_admin: boolean }>("/api/me");
         setIsAdmin(me.is_platform_admin);
-        const [d, s, cl] = await Promise.all([
+        const [d, s] = await Promise.all([
           apiFetch<Detail>(`/api/campaigns/by-id/${params.id}`),
           apiFetch<AgentSettings>("/api/campaigns/agent-settings"),
-          apiFetch<ClientLogin>("/api/campaigns/client-login"),
         ]);
         const [h, r, l, k, a] = await Promise.all([
           apiFetch<Paged<HistoryItem>>(`/api/campaigns/${params.id}/action-history?page=${historyPage}&limit=${pageSize}`),
@@ -100,7 +96,6 @@ export default function CampaignDetailPage() {
         ]);
         setData(d);
         setSettings(s);
-        setClientLogin(cl.client_login || "");
         setHistory(h.items);
         setHistoryTotal(h.total);
         setRecommendations(r.items);
@@ -154,22 +149,6 @@ export default function CampaignDetailPage() {
       toast.error(String(e));
     } finally {
       setSavingSettings(false);
-    }
-  }
-
-  async function saveClientLogin() {
-    setSavingClientLogin(true);
-    try {
-      const updated = await apiFetch<ClientLogin>("/api/campaigns/client-login", {
-        method: "PUT",
-        body: JSON.stringify({ client_login: clientLogin.trim() || null }),
-      });
-      setClientLogin(updated.client_login || "");
-      toast.success("Client-Login сохранен");
-    } catch (e) {
-      toast.error(String(e));
-    } finally {
-      setSavingClientLogin(false);
     }
   }
 
@@ -363,21 +342,6 @@ export default function CampaignDetailPage() {
                     <Button onClick={saveAgentSettings} disabled={savingSettings}>
                       {savingSettings ? "Сохраняем..." : "Сохранить настройки"}
                     </Button>
-                    <div className="pt-4 border-t">
-                      <div className="text-xs mb-1 text-[hsl(var(--muted-foreground))]" title="Логин клиента в Яндекс.Директ для агентских кабинетов.">
-                        Client-Login для Yandex Direct (tenant)
-                      </div>
-                      <div className="flex gap-2">
-                        <Input
-                          value={clientLogin}
-                          onChange={(e) => setClientLogin(e.target.value)}
-                          placeholder="например: my_client_login"
-                        />
-                        <Button variant="outline" onClick={saveClientLogin} disabled={savingClientLogin}>
-                          {savingClientLogin ? "Сохраняем..." : "Сохранить"}
-                        </Button>
-                      </div>
-                    </div>
                   </>
                 )}
               </CardContent>

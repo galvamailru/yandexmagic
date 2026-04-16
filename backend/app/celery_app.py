@@ -4,8 +4,8 @@ from celery.schedules import crontab
 from app.config import get_settings
 
 settings = get_settings()
-agent_schedule = crontab(minute="*/5") if settings.YANDEX_MOCK else crontab(minute=0, hour="*/6")
-agent_schedule_name = "agent-every-5-minutes-mock" if settings.YANDEX_MOCK else "agent-every-6-hours"
+agent_schedule = crontab(minute=0, hour="*/6")
+agent_schedule_name = "agent-every-6-hours"
 
 celery = Celery(
     "yandexmagic",

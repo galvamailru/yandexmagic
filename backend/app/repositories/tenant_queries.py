@@ -66,20 +66,6 @@ def list_campaigns(db: Session, schema: str) -> list[dict[str, Any]]:
     ]
 
 
-def delete_mock_campaigns(db: Session, schema: str) -> int:
-    _set_path(db, schema)
-    res = db.execute(
-        text(
-            f"""
-DELETE FROM "{schema}".campaigns
-WHERE name ILIKE 'Демо:%'
-"""
-        )
-    )
-    db.commit()
-    return int(res.rowcount or 0)
-
-
 def update_campaign_mode(db: Session, schema: str, campaign_uuid: UUID, mode: str) -> bool:
     _set_path(db, schema)
     res = db.execute(

@@ -22,7 +22,8 @@ class Settings(BaseSettings):
 
     PLATFORM_ADMIN_YANDEX_IDS: str = ""
     PLATFORM_ADMIN_LOGINS: str = ""
-    YANDEX_MOCK: bool = False
+    # If true, all Yandex Direct API calls go to sandbox host api-sandbox.direct.yandex.com
+    YANDEX_SANDBOX: bool = False
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
     TOKEN_ENCRYPTION_KEY: str = ""

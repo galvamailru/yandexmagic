@@ -18,9 +18,6 @@ settings = get_settings()
 
 
 async def sync_campaigns_from_yandex(db: Session, tenant_schema: str, access_token: str) -> list[dict[str, Any]]:
-    if not settings.YANDEX_MOCK:
-        # Cleanup stale demo rows created while mock mode was enabled.
-        tq.delete_mock_campaigns(db, tenant_schema)
     tenant_token = db.query(TenantYandexToken).filter(TenantYandexToken.tenant.has(schema_name=tenant_schema)).first()
     client_login = tenant_token.client_login if tenant_token else None
     rows, meta = await yandex_direct.campaigns_get_with_meta(access_token, client_login=client_login)
@@ -40,7 +37,7 @@ async def sync_campaigns_from_yandex(db: Session, tenant_schema: str, access_tok
             "http_status": meta.get("http_status"),
             "count": meta.get("count"),
             "error": meta.get("error"),
-            "mock_mode": settings.YANDEX_MOCK,
+            "sandbox_mode": settings.YANDEX_SANDBOX,
         },
     )
     for c in rows:

@@ -11,8 +11,6 @@ settings = get_settings()
 
 
 async def top_requests(phrases: list[str], region: int = 225, access_token: str | None = None) -> list[dict[str, Any]]:
-    if settings.YANDEX_MOCK:
-        return [{"phrase": p, "shows": 10000 - i * 100, "top": 3} for i, p in enumerate(phrases[:20])]
     if not access_token:
         return [{"phrase": p, "shows": 0, "top": 0} for p in phrases]
     body = {"phrases": phrases[:40], "region": region}

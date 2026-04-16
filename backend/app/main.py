@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import get_settings
-from app.routers import admin, auth, campaigns, dashboard, me, wizard
+from app.routers import admin, auth, campaigns, dashboard, me, meta, wizard
 from app.services.request_context import set_correlation_id
 from app.services.bootstrap import init_public_schema
 
@@ -35,6 +35,7 @@ app.include_router(dashboard.router, prefix="/api")
 app.include_router(campaigns.router, prefix="/api")
 app.include_router(wizard.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(meta.router, prefix="/api")
 
 
 @app.on_event("startup")

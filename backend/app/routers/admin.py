@@ -1,4 +1,3 @@
-import uuid
 from typing import Annotated
 from uuid import UUID
 
@@ -10,12 +9,10 @@ from sqlalchemy.orm import Session
 from app.auth.jwt_tokens import create_access_token
 from app.database import get_db
 from app.deps import require_platform_admin
-from app.models.public import Tenant, TenantMembership, TenantYandexToken, User
+from app.models.public import Tenant, TenantMembership, User
 from app.repositories import tenant_queries as tq
 from app.schemas.common import AdminTenantOut, AgentLogOut, TokenResponse
-from app.services.crypto_service import encrypt_text
 from app.services.prompt_store import get_ai_prompt, set_ai_prompt
-from app.services.tenant_schema import create_tenant_schema
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -190,44 +187,6 @@ LIMIT :lim OFFSET :off
         for r in rows
     ]
     return {"items": items, "total": int(total), "page": p, "limit": lim}
-
-
-@router.post("/create-sandbox")
-def create_sandbox(
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_platform_admin)],
-    name: str = "Sandbox tenant",
-) -> dict[str, str]:
-    schema_name = f"tenant_sandbox_{uuid.uuid4().hex[:8]}"
-    tenant = Tenant(name=name, schema_name=schema_name)
-    db.add(tenant)
-    db.commit()
-    db.refresh(tenant)
-    create_tenant_schema(db, schema_name)
-    db.add(TenantMembership(user_id=user.id, tenant_id=tenant.id, role="owner"))
-    db.add(TenantYandexToken(tenant_id=tenant.id, access_token=encrypt_text("mock")))
-    db.commit()
-    # fixtures
-    c1 = tq.upsert_campaign(db, schema_name, 91001, "Sandbox: Поиск", "ON", mode="advisor")
-    c2 = tq.upsert_campaign(db, schema_name, 91002, "Sandbox: РСЯ", "ON", mode="autopilot")
-    tq.insert_recommendation(
-        db,
-        schema_name,
-        c1,
-        "warning",
-        "Тестовый кейс: низкий CTR",
-        "Ключевая фраза имеет низкий CTR и высокий расход. Рекомендуется отключение.",
-        {"action": "suspend", "keyword_id": 91001001},
-    )
-    tq.insert_agent_log(
-        db,
-        schema_name,
-        c2,
-        "info",
-        "Sandbox fixtures seeded",
-        {"scenario": "regression_base"},
-    )
-    return {"status": "ok", "tenant_id": str(tenant.id)}
 
 
 @router.post("/tenants/{tenant_id}/membership-role")

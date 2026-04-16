@@ -21,8 +21,6 @@ export default function AdminPage() {
   const [runs, setRuns] = useState<JobRun[]>([]);
   const [prompt, setPrompt] = useState("");
   const [savingPrompt, setSavingPrompt] = useState(false);
-  const [creatingSandbox, setCreatingSandbox] = useState(false);
-  const [sandboxName, setSandboxName] = useState("Sandbox tenant");
   const [roleForm, setRoleForm] = useState({ tenantId: "", userId: "", role: "manager" });
   const [savingRole, setSavingRole] = useState(false);
   const [tab, setTab] = useState<"tenants" | "jobs" | "logs" | "prompt">("tenants");
@@ -92,23 +90,6 @@ export default function AdminPage() {
       toast.error(String(e));
     } finally {
       setSavingPrompt(false);
-    }
-  }
-
-  async function createSandbox() {
-    setCreatingSandbox(true);
-    try {
-      const res = await apiFetch<{ tenant_id: string }>("/api/admin/create-sandbox?name=" + encodeURIComponent(sandboxName), {
-        method: "POST",
-      });
-      toast.success(`Sandbox создан: ${res.tenant_id}`);
-      const t = await apiFetch<Paged<Tenant>>(`/api/admin/tenants?page=${tenantPage}&limit=${pageSize}`);
-      setRows(t.items);
-      setTenantTotal(t.total);
-    } catch (e) {
-      toast.error(String(e));
-    } finally {
-      setCreatingSandbox(false);
     }
   }
 
@@ -202,15 +183,9 @@ export default function AdminPage() {
         {tab === "tenants" && (
           <Card>
             <CardHeader>
-              <CardTitle>Sandbox и роли</CardTitle>
+              <CardTitle>Роли</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-col md:flex-row gap-2">
-                <Input value={sandboxName} onChange={(e) => setSandboxName(e.target.value)} placeholder="Название sandbox tenant" />
-                <Button onClick={createSandbox} disabled={creatingSandbox}>
-                  {creatingSandbox ? "Создаём..." : "Создать sandbox"}
-                </Button>
-              </div>
               <div className="grid md:grid-cols-4 gap-2">
                 <select
                   className="h-10 rounded-md border px-3"
