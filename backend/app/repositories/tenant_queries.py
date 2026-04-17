@@ -848,3 +848,77 @@ VALUES (:id, :campaign_id, :kind, :title, :body, :payload, :status, :created_at)
 
     db.commit()
     return {"normalized": normalized, "split_created": split_created, "total": len(rows)}
+
+
+def get_domain_settings(db: Session, schema: str, domain: str) -> dict[str, Any]:
+    _set_path(db, schema)
+    row = db.execute(
+        text(
+            f'''
+SELECT domain, enabled, max_changes_per_run, hard_weekly_limit_rub, schedule_hint
+FROM "{schema}".domain_settings
+WHERE domain = :d
+'''
+        ),
+        {"d": domain},
+    ).fetchone()
+    if not row:
+        return {
+            "domain": domain,
+            "enabled": True,
+            "max_changes_per_run": 10,
+            "hard_weekly_limit_rub": 0.0,
+            "schedule_hint": "",
+        }
+    return {
+        "domain": str(row[0]),
+        "enabled": bool(row[1]),
+        "max_changes_per_run": int(row[2]),
+        "hard_weekly_limit_rub": float(row[3] or 0),
+        "schedule_hint": str(row[4] or ""),
+    }
+
+
+def mark_idempotency_seen(db: Session, schema: str, key: str) -> bool:
+    _set_path(db, schema)
+    row = db.execute(
+        text(
+            f'''
+INSERT INTO "{schema}".idempotency_keys(idempotency_key, created_at)
+VALUES (:k, NOW())
+ON CONFLICT (idempotency_key) DO NOTHING
+RETURNING idempotency_key
+'''
+        ),
+        {"k": key},
+    ).fetchone()
+    db.commit()
+    return bool(row)
+
+
+def recent_campaign_stats(
+    db: Session, schema: str, campaign_uuid: UUID, limit: int = 8
+) -> list[dict[str, Any]]:
+    _set_path(db, schema)
+    rows = db.execute(
+        text(
+            f'''
+SELECT stat_date::text, cost_rub, clicks, impressions, ctr
+FROM "{schema}".daily_stats
+WHERE campaign_id = :cid
+ORDER BY stat_date DESC
+LIMIT :lim
+'''
+        ),
+        {"cid": str(campaign_uuid), "lim": limit},
+    ).fetchall()
+    return [
+        {
+            "date": str(r[0]),
+            "cost_rub": float(r[1] or 0),
+            "clicks": int(r[2] or 0),
+            "impressions": int(r[3] or 0),
+            "ctr": float(r[4] or 0),
+        }
+        for r in rows
+    ]

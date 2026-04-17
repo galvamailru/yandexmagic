@@ -82,6 +82,20 @@ CREATE TABLE IF NOT EXISTS "{safe}".action_history (
     correlation_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )''',
+        f'''
+CREATE TABLE IF NOT EXISTS "{safe}".domain_settings (
+    domain TEXT PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    max_changes_per_run INTEGER NOT NULL DEFAULT 10,
+    hard_weekly_limit_rub NUMERIC(18,4) NOT NULL DEFAULT 0,
+    schedule_hint TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)''',
+        f'''
+CREATE TABLE IF NOT EXISTS "{safe}".idempotency_keys (
+    idempotency_key TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)''',
     ]
     for sql in stmts:
         db.execute(text(sql))
@@ -95,6 +109,25 @@ ON CONFLICT (id) DO NOTHING
 '''
         )
     )
+    domain_defaults = [
+        ("anomaly_watchdog", True, 8, 0.0, "*/3h"),
+        ("budget_guard", True, 8, 7000.0, "*/4h"),
+        ("bid_optimization", True, 15, 0.0, "daily"),
+        ("keyword_hygiene", True, 15, 0.0, "daily"),
+        ("ad_rotation", True, 10, 0.0, "3x_week"),
+        ("retargeting_tuning", True, 10, 0.0, "weekly"),
+    ]
+    for d, enabled, max_changes, limit_rub, schedule_hint in domain_defaults:
+        db.execute(
+            text(
+                f'''
+INSERT INTO "{safe}".domain_settings(domain, enabled, max_changes_per_run, hard_weekly_limit_rub, schedule_hint, updated_at)
+VALUES (:d, :en, :m, :lim, :s, NOW())
+ON CONFLICT (domain) DO NOTHING
+'''
+            ),
+            {"d": d, "en": enabled, "m": max_changes, "lim": limit_rub, "s": schedule_hint},
+        )
     db.commit()
 
 

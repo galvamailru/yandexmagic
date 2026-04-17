@@ -9,7 +9,7 @@ from app.celery_app import celery
 from app.database import SessionLocal
 from app.models.public import Tenant
 from app.services.request_context import set_correlation_id
-from app.services.agent_runner import run_for_tenant
+from app.services.agent_runner import run_domain_for_tenant, run_for_tenant
 
 
 @celery.task(name="app.tasks.agent_tasks.run_agent_cycle")
@@ -80,3 +80,83 @@ WHERE id=:id
     finally:
         db2.close()
     return f"ok:{n}:err:{errors}"
+
+
+@celery.task(name="app.tasks.agent_tasks.run_domain_cycle")
+def run_domain_cycle(domain: str) -> str:
+    run_id = str(uuid.uuid4())
+    set_correlation_id(run_id)
+    db = SessionLocal()
+    started = int(time.time() * 1000)
+    try:
+        lock_name = f"domain_cycle:{domain}"
+        lock = db.execute(
+            text(
+                """
+INSERT INTO job_locks(name, locked_until)
+VALUES (:n, NOW() + INTERVAL '25 minutes')
+ON CONFLICT (name) DO UPDATE SET locked_until = EXCLUDED.locked_until
+WHERE job_locks.locked_until < NOW()
+RETURNING name
+"""
+            ),
+            {"n": lock_name},
+        ).fetchone()
+        if not lock:
+            return "skipped:locked"
+        db.execute(
+            text(
+                """
+INSERT INTO job_runs(id, name, status, started_at, details)
+VALUES (:id, :name, 'running', NOW(), :d)
+"""
+            ),
+            {"id": run_id, "name": f"domain_cycle:{domain}", "d": json.dumps({"domain": domain, "correlation_id": run_id})},
+        )
+        db.commit()
+        tenants = db.query(Tenant).all()
+    finally:
+        db.close()
+    processed = 0
+    applied = 0
+    errors = 0
+    for t in tenants:
+        s = SessionLocal()
+        try:
+            try:
+                applied += int(asyncio.run(run_domain_for_tenant(s, t, domain=domain)))
+                processed += 1
+            except Exception:  # noqa: BLE001
+                errors += 1
+        finally:
+            s.close()
+    finish = int(time.time() * 1000)
+    db2 = SessionLocal()
+    try:
+        db2.execute(
+            text(
+                """
+UPDATE job_runs
+SET status=:status, finished_at=NOW(), duration_ms=:dur, details=:d
+WHERE id=:id
+"""
+            ),
+            {
+                "id": run_id,
+                "status": "success" if errors == 0 else "partial_error",
+                "dur": finish - started,
+                "d": json.dumps(
+                    {
+                        "domain": domain,
+                        "processed_tenants": processed,
+                        "applied_actions": applied,
+                        "errors": errors,
+                        "correlation_id": run_id,
+                    }
+                ),
+            },
+        )
+        db2.commit()
+    finally:
+        db2.close()
+    return f"ok:{processed}:applied:{applied}:err:{errors}"

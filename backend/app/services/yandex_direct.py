@@ -454,3 +454,70 @@ async def ad_performance_rows(token: str, campaign_ids: list[int], client_login:
             }
         )
     return out
+
+
+async def ads_suspend(token: str, ad_ids: list[int], client_login: str | None = None) -> bool:
+    if not ad_ids:
+        return True
+    body = {"method": "suspend", "params": {"SelectionCriteria": {"Ids": ad_ids}}}
+    r = await _post_with_retry(f"{API}ads", token, body, client_login=client_login)
+    return bool(r and r.status_code < 400)
+
+
+async def ads_resume(token: str, ad_ids: list[int], client_login: str | None = None) -> bool:
+    if not ad_ids:
+        return True
+    body = {"method": "resume", "params": {"SelectionCriteria": {"Ids": ad_ids}}}
+    r = await _post_with_retry(f"{API}ads", token, body, client_login=client_login)
+    return bool(r and r.status_code < 400)
+
+
+async def campaigns_update_daily_budget(
+    token: str, campaign_id: int, amount_rub: float, client_login: str | None = None
+) -> bool:
+    amount_micros = int(max(300.0, amount_rub) * 1_000_000)
+    body = {
+        "method": "update",
+        "params": {
+            "Campaigns": [
+                {
+                    "Id": campaign_id,
+                    "DailyBudget": {"Amount": amount_micros, "Mode": "STANDARD"},
+                }
+            ]
+        },
+    }
+    r = await _post_with_retry(f"{API}campaigns", token, body, client_login=client_login)
+    return bool(r and r.status_code < 400)
+
+
+async def audience_targets_get(token: str, campaign_ids: list[int], client_login: str | None = None) -> list[dict[str, Any]]:
+    body = {
+        "method": "get",
+        "params": {
+            "SelectionCriteria": {"CampaignIds": campaign_ids},
+            "FieldNames": ["Id", "CampaignId", "AdGroupId", "State", "BidModifier"],
+        },
+    }
+    r = await _post_with_retry(f"{API}audiencetargets", token, body, client_login=client_login)
+    if not r or r.status_code >= 400:
+        return []
+    return r.json().get("result", {}).get("AudienceTargets", []) or []
+
+
+async def audience_targets_update_bid_modifier(
+    token: str, audience_target_id: int, bid_modifier_percent: int, client_login: str | None = None
+) -> bool:
+    body = {
+        "method": "update",
+        "params": {
+            "AudienceTargets": [
+                {
+                    "Id": audience_target_id,
+                    "BidModifier": int(max(10, min(1200, bid_modifier_percent))),
+                }
+            ]
+        },
+    }
+    r = await _post_with_retry(f"{API}audiencetargets", token, body, client_login=client_login)
+    return bool(r and r.status_code < 400)

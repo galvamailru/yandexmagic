@@ -4,8 +4,6 @@ from celery.schedules import crontab
 from app.config import get_settings
 
 settings = get_settings()
-agent_schedule = crontab(minute=0, hour="*/6")
-agent_schedule_name = "agent-every-6-hours"
 
 celery = Celery(
     "yandexmagic",
@@ -21,9 +19,39 @@ celery.conf.update(
     timezone="UTC",
     imports=("app.tasks.agent_tasks",),
     beat_schedule={
-        agent_schedule_name: {
+        "domain-anomaly-watchdog": {
+            "task": "app.tasks.agent_tasks.run_domain_cycle",
+            "schedule": crontab(minute=0, hour="*/3"),
+            "args": ("anomaly_watchdog",),
+        },
+        "domain-budget-guard": {
+            "task": "app.tasks.agent_tasks.run_domain_cycle",
+            "schedule": crontab(minute=30, hour="*/4"),
+            "args": ("budget_guard",),
+        },
+        "domain-bid-optimization": {
+            "task": "app.tasks.agent_tasks.run_domain_cycle",
+            "schedule": crontab(minute=10, hour=2),
+            "args": ("bid_optimization",),
+        },
+        "domain-keyword-hygiene": {
+            "task": "app.tasks.agent_tasks.run_domain_cycle",
+            "schedule": crontab(minute=40, hour=2),
+            "args": ("keyword_hygiene",),
+        },
+        "domain-ad-rotation": {
+            "task": "app.tasks.agent_tasks.run_domain_cycle",
+            "schedule": crontab(minute=15, hour=4, day_of_week="1,3,5"),
+            "args": ("ad_rotation",),
+        },
+        "domain-retargeting": {
+            "task": "app.tasks.agent_tasks.run_domain_cycle",
+            "schedule": crontab(minute=25, hour=5, day_of_week="0"),
+            "args": ("retargeting_tuning",),
+        },
+        "agent-full-backward-compatible": {
             "task": "app.tasks.agent_tasks.run_agent_cycle",
-            "schedule": agent_schedule,
+            "schedule": crontab(minute=0, hour="*/12"),
         },
     },
 )
