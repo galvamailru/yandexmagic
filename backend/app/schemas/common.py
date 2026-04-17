@@ -200,3 +200,18 @@ class ClientLoginOut(BaseModel):
 
 class ClientLoginUpdate(BaseModel):
     client_login: str | None = None
+
+
+class DomainSettingsOut(BaseModel):
+    domain: str
+    enabled: bool
+    max_changes_per_run: int
+    hard_weekly_limit_rub: float
+    schedule_hint: str
+
+
+class DomainSettingsUpdate(BaseModel):
+    enabled: bool
+    max_changes_per_run: int = Field(ge=0, le=1000)
+    hard_weekly_limit_rub: float = Field(ge=0)
+    schedule_hint: str = Field(max_length=64)

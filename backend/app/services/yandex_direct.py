@@ -351,6 +351,54 @@ async def campaigns_resume(token: str, campaign_ids: list[int], client_login: st
     return bool(r and r.status_code < 400)
 
 
+async def campaigns_get_negative_keywords(
+    token: str, campaign_id: int, client_login: str | None = None
+) -> list[str]:
+    body = {
+        "method": "get",
+        "params": {
+            "SelectionCriteria": {"Ids": [campaign_id]},
+            "FieldNames": ["Id"],
+            "TextCampaignFieldNames": ["NegativeKeywords"],
+        },
+    }
+    r = await _post_with_retry(f"{API}campaigns", token, body, client_login=client_login)
+    if not r or r.status_code >= 400:
+        return []
+    campaigns = r.json().get("result", {}).get("Campaigns", []) or []
+    if not campaigns:
+        return []
+    tc = campaigns[0].get("TextCampaign") if isinstance(campaigns[0], dict) else {}
+    if not isinstance(tc, dict):
+        return []
+    nk = tc.get("NegativeKeywords")
+    if isinstance(nk, dict) and isinstance(nk.get("Items"), list):
+        return [str(x).strip() for x in nk["Items"] if str(x).strip()]
+    return []
+
+
+async def campaigns_add_negative_keywords(
+    token: str, campaign_id: int, keywords: list[str], client_login: str | None = None
+) -> bool:
+    current = await campaigns_get_negative_keywords(token, campaign_id, client_login=client_login)
+    merged = list(dict.fromkeys([*current, *[str(x).strip() for x in keywords if str(x).strip()]]))
+    if not merged:
+        return True
+    body = {
+        "method": "update",
+        "params": {
+            "Campaigns": [
+                {
+                    "Id": campaign_id,
+                    "TextCampaign": {"NegativeKeywords": {"Items": merged[:1000]}},
+                }
+            ]
+        },
+    }
+    r = await _post_with_retry(f"{API}campaigns", token, body, client_login=client_login)
+    return bool(r and r.status_code < 400)
+
+
 async def ad_performance_rows(token: str, campaign_ids: list[int], client_login: str | None = None) -> list[dict[str, Any]]:
     body = {
         "method": "get",
@@ -521,3 +569,72 @@ async def audience_targets_update_bid_modifier(
     }
     r = await _post_with_retry(f"{API}audiencetargets", token, body, client_login=client_login)
     return bool(r and r.status_code < 400)
+
+
+async def retargetinglists_get(token: str, client_login: str | None = None) -> list[dict[str, Any]]:
+    body = {
+        "method": "get",
+        "params": {
+            "SelectionCriteria": {},
+            "FieldNames": ["Id", "Name", "Description", "Type"],
+        },
+    }
+    r = await _post_with_retry(f"{API}retargetinglists", token, body, client_login=client_login)
+    if not r or r.status_code >= 400:
+        return []
+    return r.json().get("result", {}).get("RetargetingLists", []) or []
+
+
+async def bidmodifiers_get(token: str, campaign_ids: list[int], client_login: str | None = None) -> list[dict[str, Any]]:
+    body = {
+        "method": "get",
+        "params": {
+            "SelectionCriteria": {"CampaignIds": campaign_ids},
+            "FieldNames": ["CampaignId", "AdGroupId", "Type"],
+            "MobileAdjustmentFieldNames": ["BidModifier"],
+            "DesktopAdjustmentFieldNames": ["BidModifier"],
+            "DemographicsAdjustmentFieldNames": ["BidModifier", "Age", "Gender"],
+            "RetargetingAdjustmentFieldNames": ["BidModifier", "Conditions"],
+        },
+    }
+    r = await _post_with_retry(f"{API}bidmodifiers", token, body, client_login=client_login)
+    if not r or r.status_code >= 400:
+        return []
+    return r.json().get("result", {}).get("BidModifiers", []) or []
+
+
+async def bidmodifiers_update_mobile(
+    token: str, campaign_id: int, bid_modifier_percent: int, client_login: str | None = None
+) -> bool:
+    body = {
+        "method": "add",
+        "params": {
+            "BidModifiers": [
+                {
+                    "CampaignId": campaign_id,
+                    "MobileAdjustment": {"BidModifier": int(max(10, min(1200, bid_modifier_percent)))},
+                }
+            ]
+        },
+    }
+    r = await _post_with_retry(f"{API}bidmodifiers", token, body, client_login=client_login)
+    return bool(r and r.status_code < 400)
+
+
+async def changes_check(
+    token: str,
+    campaign_ids: list[int],
+    last_change_timestamp: str | None = None,
+    client_login: str | None = None,
+) -> dict[str, Any]:
+    body = {
+        "method": "checkCampaigns",
+        "params": {
+            "CampaignIds": campaign_ids,
+            "Timestamp": last_change_timestamp or "1970-01-01T00:00:00Z",
+        },
+    }
+    r = await _post_with_retry(f"{API}changes", token, body, client_login=client_login)
+    if not r or r.status_code >= 400:
+        return {"Changed": False, "Timestamp": last_change_timestamp or ""}
+    return r.json().get("result", {}) or {}

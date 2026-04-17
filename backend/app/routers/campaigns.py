@@ -23,9 +23,12 @@ from app.schemas.common import (
     CampaignStatsOut,
     ClientLoginOut,
     ClientLoginUpdate,
+    DomainSettingsOut,
+    DomainSettingsUpdate,
 )
 from app.services import sync_service
 from app.services import yandex_direct
+from app.services.agent_domains import ALL_ACTION_DOMAINS
 from app.services.openai_service import generate_recommendations
 from app.services.request_context import get_correlation_id
 
@@ -36,6 +39,54 @@ def _page_params(page: int, limit: int) -> tuple[int, int]:
     p = max(1, page)
     lim = min(max(1, limit), 100)
     return p, lim
+
+
+async def _apply_payload_action(
+    token: str,
+    client_login: str | None,
+    payload: dict,
+) -> bool:
+    action = str(payload.get("action_type") or payload.get("action") or "")
+    if action == "suspend" or action == "suspend_keyword":
+        kid = int(payload.get("keyword_id") or 0)
+        return await yandex_direct.keywords_suspend(token, [kid], client_login=client_login) if kid else False
+    if action == "resume_keyword":
+        kid = int(payload.get("keyword_id") or 0)
+        return await yandex_direct.keywords_resume(token, [kid], client_login=client_login) if kid else False
+    if action == "bid_up" or action == "set_bid":
+        kid = int(payload.get("keyword_id") or 0)
+        bid = float(payload.get("new_bid_rub") or payload.get("bid_rub") or 0)
+        if kid and bid > 0:
+            return await yandex_direct.keywords_set_bids(
+                token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}], client_login=client_login
+            )
+        return False
+    if action == "suspend_campaign":
+        cid = int(payload.get("yandex_campaign_id") or 0)
+        return await yandex_direct.campaigns_suspend(token, [cid], client_login=client_login) if cid else False
+    if action == "set_campaign_daily_budget":
+        cid = int(payload.get("yandex_campaign_id") or 0)
+        amount = float(payload.get("amount_rub") or 0)
+        return await yandex_direct.campaigns_update_daily_budget(token, cid, amount, client_login=client_login) if cid and amount > 0 else False
+    if action == "suspend_ad":
+        aid = int(payload.get("ad_id") or 0)
+        return await yandex_direct.ads_suspend(token, [aid], client_login=client_login) if aid else False
+    if action == "resume_ad":
+        aid = int(payload.get("ad_id") or 0)
+        return await yandex_direct.ads_resume(token, [aid], client_login=client_login) if aid else False
+    if action == "update_audience_bid_modifier":
+        atid = int(payload.get("audience_target_id") or 0)
+        mod = int(payload.get("bid_modifier_percent") or 0)
+        return (
+            await yandex_direct.audience_targets_update_bid_modifier(token, atid, mod, client_login=client_login)
+            if atid and mod > 0
+            else False
+        )
+    if action == "add_negative_keywords_campaign":
+        cid = int(payload.get("yandex_campaign_id") or 0)
+        kws = payload.get("keywords") if isinstance(payload.get("keywords"), list) else []
+        return await yandex_direct.campaigns_add_negative_keywords(token, cid, kws, client_login=client_login) if cid else False
+    return False
 
 
 @router.get("", response_model=list[CampaignOut])
@@ -176,7 +227,7 @@ async def generate_recs(
         f"Кампания {c['name']} (yandex id {c['yandex_campaign_id']}), режим советник.\n"
         + ("Статистика по ключевым фразам:\n" + "\n".join(lines) if lines else "Статистика по ключевым фразам отсутствует.")
     )
-    items = generate_recommendations(summary, db=db)
+    items = generate_recommendations(summary, db=db, domain="keyword_hygiene")
     for it in items:
         tq.insert_recommendation(
             db,
@@ -214,35 +265,19 @@ async def apply_all(
     corr = get_correlation_id()
     for p in pending:
         payload = p.get("payload") or {}
-        kid = int(payload.get("keyword_id") or 0)
-        action = str(payload.get("action") or "")
-        if kid and action == "suspend":
-            await yandex_direct.keywords_suspend(token, [kid], client_login=client_login)
+        ok = await _apply_payload_action(token, client_login, payload)
+        if ok:
+            action_type = str(payload.get("action_type") or payload.get("action") or "apply_payload_action")
             tq.insert_action_history(
                 db,
                 tenant.schema_name,
                 campaign_id,
-                "suspend_keyword",
-                {"keyword_id": kid, "status": "ON"},
-                    {"keyword_id": kid, "status": "SUSPENDED", "actor_user_id": str(user.id)},
+                action_type,
+                {"payload": payload},
+                {"payload": {**payload, "actor_user_id": str(user.id)}},
                 corr,
             )
-        elif kid and action == "bid_up":
-            bid = float(payload.get("new_bid_rub") or 0)
-            if bid > 0:
-                await yandex_direct.keywords_set_bids(
-                    token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}], client_login=client_login
-                )
-                tq.insert_action_history(
-                    db,
-                    tenant.schema_name,
-                    campaign_id,
-                    "set_bid",
-                    {"keyword_id": kid},
-                    {"keyword_id": kid, "bid_rub": bid, "actor_user_id": str(user.id)},
-                    corr,
-                )
-        applied_ids.append(UUID(str(p["id"])))
+            applied_ids.append(UUID(str(p["id"])))
     tq.mark_recommendations_applied(db, tenant.schema_name, applied_ids)
     tq.insert_agent_log(
         db,
@@ -294,35 +329,19 @@ async def apply_selected(
         if p.get("status") != "pending":
             continue
         payload = p.get("payload") or {}
-        kid = int(payload.get("keyword_id") or 0)
-        action = str(payload.get("action") or "")
-        if kid and action == "suspend":
-            await yandex_direct.keywords_suspend(token, [kid], client_login=client_login)
+        ok = await _apply_payload_action(token, client_login, payload)
+        if ok:
+            action_type = str(payload.get("action_type") or payload.get("action") or "apply_payload_action")
             tq.insert_action_history(
                 db,
                 tenant.schema_name,
                 campaign_id,
-                "suspend_keyword",
-                {"keyword_id": kid, "status": "ON"},
-                {"keyword_id": kid, "status": "SUSPENDED", "actor_user_id": str(user.id)},
+                action_type,
+                {"payload": payload},
+                {"payload": {**payload, "actor_user_id": str(user.id)}},
                 corr,
             )
-        elif kid and action == "bid_up":
-            bid = float(payload.get("new_bid_rub") or 0)
-            if bid > 0:
-                await yandex_direct.keywords_set_bids(
-                    token, [{"KeywordId": kid, "Bid": int(bid * 1_000_000)}], client_login=client_login
-                )
-                tq.insert_action_history(
-                    db,
-                    tenant.schema_name,
-                    campaign_id,
-                    "set_bid",
-                    {"keyword_id": kid},
-                    {"keyword_id": kid, "bid_rub": bid, "actor_user_id": str(user.id)},
-                    corr,
-                )
-        applied_ids.append(UUID(str(p["id"])))
+            applied_ids.append(UUID(str(p["id"])))
     tq.mark_recommendations_applied(db, tenant.schema_name, applied_ids)
     tq.insert_agent_log(
         db,
@@ -603,3 +622,37 @@ def update_client_login(
 ) -> ClientLoginOut:
     sync_service.set_client_login_for_tenant(db, tenant.id, body.client_login)
     return ClientLoginOut(client_login=sync_service.get_client_login_for_tenant(db, tenant.id))
+
+
+@router.get("/domain-settings", response_model=list[DomainSettingsOut])
+def get_domain_settings(
+    db: Annotated[Session, Depends(get_db)],
+    tenant: Annotated[Tenant, Depends(require_tenant_access)],
+) -> list[DomainSettingsOut]:
+    rows = tq.list_domain_settings(db, tenant.schema_name)
+    return [DomainSettingsOut(**r) for r in rows]
+
+
+@router.put("/domain-settings/{domain}", response_model=DomainSettingsOut)
+def update_domain_settings(
+    domain: str,
+    body: DomainSettingsUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    tenant: Annotated[Tenant, Depends(require_tenant_access)],
+    _: Annotated[User, Depends(require_tenant_manager_or_owner)],
+) -> DomainSettingsOut:
+    if domain not in ALL_ACTION_DOMAINS:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    tq.update_domain_settings(
+        db,
+        tenant.schema_name,
+        domain,
+        {
+            "enabled": body.enabled,
+            "max_changes_per_run": body.max_changes_per_run,
+            "hard_weekly_limit_rub": body.hard_weekly_limit_rub,
+            "schedule_hint": body.schedule_hint,
+        },
+    )
+    updated = tq.get_domain_settings(db, tenant.schema_name, domain)
+    return DomainSettingsOut(**updated)

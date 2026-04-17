@@ -2,6 +2,7 @@ from sqlalchemy import text
 
 from app.database import Base, SessionLocal, engine
 from app.models import public as models_public
+from app.services.prompt_store import DEFAULT_DOMAIN_PROMPTS
 from app.services.tenant_schema import create_tenant_schema
 
 
@@ -74,6 +75,17 @@ CREATE TABLE IF NOT EXISTS job_runs (
         db.execute(
             text(
                 """
+CREATE TABLE IF NOT EXISTS domain_prompts (
+    domain TEXT PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+            )
+        )
+        db.execute(
+            text(
+                """
 INSERT INTO app_settings(key, value)
 VALUES ('ai_agent_prompt', :value)
 ON CONFLICT (key) DO NOTHING
@@ -101,6 +113,17 @@ ON CONFLICT (key) DO NOTHING
                 )
             },
         )
+        for domain, prompt in DEFAULT_DOMAIN_PROMPTS.items():
+            db.execute(
+                text(
+                    """
+INSERT INTO domain_prompts(domain, prompt, updated_at)
+VALUES (:d, :p, NOW())
+ON CONFLICT (domain) DO NOTHING
+"""
+                ),
+                {"d": domain, "p": prompt},
+            )
         # Ensure tenant schemas are upgraded with latest tables.
         tenants = db.query(models_public.Tenant).all()
         for t in tenants:

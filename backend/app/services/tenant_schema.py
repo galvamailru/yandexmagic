@@ -96,6 +96,12 @@ CREATE TABLE IF NOT EXISTS "{safe}".idempotency_keys (
     idempotency_key TEXT PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )''',
+        f'''
+CREATE TABLE IF NOT EXISTS "{safe}".domain_watermarks (
+    domain TEXT PRIMARY KEY,
+    watermark_ts TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)''',
     ]
     for sql in stmts:
         db.execute(text(sql))
@@ -127,6 +133,17 @@ ON CONFLICT (domain) DO NOTHING
 '''
             ),
             {"d": d, "en": enabled, "m": max_changes, "lim": limit_rub, "s": schedule_hint},
+        )
+    for d, *_ in domain_defaults:
+        db.execute(
+            text(
+                f'''
+INSERT INTO "{safe}".domain_watermarks(domain, watermark_ts, updated_at)
+VALUES (:d, '', NOW())
+ON CONFLICT (domain) DO NOTHING
+'''
+            ),
+            {"d": d},
         )
     db.commit()
 

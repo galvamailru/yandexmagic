@@ -879,6 +879,54 @@ WHERE domain = :d
     }
 
 
+def list_domain_settings(db: Session, schema: str) -> list[dict[str, Any]]:
+    _set_path(db, schema)
+    rows = db.execute(
+        text(
+            f'''
+SELECT domain, enabled, max_changes_per_run, hard_weekly_limit_rub, schedule_hint
+FROM "{schema}".domain_settings
+ORDER BY domain
+'''
+        )
+    ).fetchall()
+    return [
+        {
+            "domain": str(r[0]),
+            "enabled": bool(r[1]),
+            "max_changes_per_run": int(r[2]),
+            "hard_weekly_limit_rub": float(r[3] or 0),
+            "schedule_hint": str(r[4] or ""),
+        }
+        for r in rows
+    ]
+
+
+def update_domain_settings(db: Session, schema: str, domain: str, data: dict[str, Any]) -> None:
+    _set_path(db, schema)
+    db.execute(
+        text(
+            f'''
+UPDATE "{schema}".domain_settings SET
+enabled=:enabled,
+max_changes_per_run=:max_changes,
+hard_weekly_limit_rub=:limit_rub,
+schedule_hint=:schedule_hint,
+updated_at=NOW()
+WHERE domain=:domain
+'''
+        ),
+        {
+            "domain": domain,
+            "enabled": bool(data["enabled"]),
+            "max_changes": int(data["max_changes_per_run"]),
+            "limit_rub": float(data["hard_weekly_limit_rub"]),
+            "schedule_hint": str(data["schedule_hint"]),
+        },
+    )
+    db.commit()
+
+
 def mark_idempotency_seen(db: Session, schema: str, key: str) -> bool:
     _set_path(db, schema)
     row = db.execute(
@@ -922,3 +970,27 @@ LIMIT :lim
         }
         for r in rows
     ]
+
+
+def get_domain_watermark(db: Session, schema: str, domain: str) -> str:
+    _set_path(db, schema)
+    row = db.execute(
+        text(f'SELECT watermark_ts FROM "{schema}".domain_watermarks WHERE domain=:d'),
+        {"d": domain},
+    ).fetchone()
+    return str(row[0]) if row and row[0] else ""
+
+
+def set_domain_watermark(db: Session, schema: str, domain: str, watermark_ts: str) -> None:
+    _set_path(db, schema)
+    db.execute(
+        text(
+            f'''
+INSERT INTO "{schema}".domain_watermarks(domain, watermark_ts, updated_at)
+VALUES (:d, :w, NOW())
+ON CONFLICT (domain) DO UPDATE SET watermark_ts = EXCLUDED.watermark_ts, updated_at = NOW()
+'''
+        ),
+        {"d": domain, "w": watermark_ts or ""},
+    )
+    db.commit()

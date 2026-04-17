@@ -6,7 +6,8 @@ from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.services.prompt_store import get_ai_prompt
+from app.services.domain_action_contracts import contract_hint, validate_domain_actions
+from app.services.prompt_store import get_ai_prompt, get_domain_prompt
 from app.services.recommendation_normalizer import parse_structured_recommendations, sanitize_unstructured_body
 
 settings = get_settings()
@@ -19,7 +20,7 @@ def _client() -> OpenAI:
     )
 
 
-def generate_recommendations(stats_summary: str, db: Session | None = None) -> list[dict[str, Any]]:
+def generate_recommendations(stats_summary: str, db: Session | None = None, domain: str | None = None) -> list[dict[str, Any]]:
     if not (settings.LLM_API_KEY or settings.OPENAI_API_KEY):
         return [
             {
@@ -29,7 +30,8 @@ def generate_recommendations(stats_summary: str, db: Session | None = None) -> l
                 "payload": {"keyword_id": 0},
             }
         ]
-    system_prompt = get_ai_prompt(db) if db is not None else (
+    system_prompt = (
+        get_domain_prompt(db, domain) if db is not None and domain else get_ai_prompt(db) if db is not None else (
         "Ты эксперт по Яндекс Директ. Ответь ТОЛЬКО JSON-массивом объектов "
         "{kind,title,body,payload} без markdown и текста вне JSON. "
         "Payload contract обязателен: payload всегда объект; "
@@ -39,6 +41,7 @@ def generate_recommendations(stats_summary: str, db: Session | None = None) -> l
         "для kind=budget укажи action, amount, period; "
         "для kind=general укажи action=none и note. "
         "Если данных недостаточно, верни один объект с title='Анализ'."
+        )
     )
     resp = _client().chat.completions.create(
         model=settings.OPENAI_MODEL,
@@ -91,3 +94,43 @@ def generate_ad_texts(business_summary: str, keywords: list[str]) -> list[dict[s
     except json.JSONDecodeError:
         pass
     return [{"title": "Объявление", "title2": "", "text": text[:500]}]
+
+
+def generate_domain_actions(
+    domain: str,
+    data_summary: str,
+    db: Session | None = None,
+) -> list[dict[str, Any]]:
+    if not (settings.LLM_API_KEY or settings.OPENAI_API_KEY):
+        return []
+    base_prompt = get_domain_prompt(db, domain) if db is not None else "Ты эксперт по Яндекс Директ."
+    system_prompt = f"{base_prompt}\n\n{contract_hint(domain)}"
+    try:
+        resp = _client().chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": data_summary[:8000]},
+            ],
+            temperature=0.1,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    text = resp.choices[0].message.content or "[]"
+    items = parse_structured_recommendations(text)
+    # parse_structured_recommendations normalizes to {kind,title,body,payload}, so also support raw JSON list
+    if items:
+        raw: list[dict[str, Any]] = []
+        for it in items:
+            payload = it.get("payload")
+            if isinstance(payload, dict) and payload.get("action_type"):
+                raw.append(payload)
+        if raw:
+            return validate_domain_actions(domain, raw)
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return validate_domain_actions(domain, [x for x in parsed if isinstance(x, dict)])
+    except json.JSONDecodeError:
+        pass
+    return []

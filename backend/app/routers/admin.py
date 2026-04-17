@@ -12,12 +12,17 @@ from app.deps import require_platform_admin
 from app.models.public import Tenant, TenantMembership, User
 from app.repositories import tenant_queries as tq
 from app.schemas.common import AdminTenantOut, AgentLogOut, TokenResponse
-from app.services.prompt_store import get_ai_prompt, set_ai_prompt
+from app.services.prompt_store import get_ai_prompt, list_domain_prompts, set_ai_prompt, set_domain_prompt
+from app.services.agent_domains import ALL_ACTION_DOMAINS
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 class PromptBody(BaseModel):
+    prompt: str
+
+
+class DomainPromptBody(BaseModel):
     prompt: str
 
 
@@ -147,6 +152,30 @@ def update_ai_prompt(
     if len(text) < 20:
         raise HTTPException(status_code=400, detail="Prompt is too short")
     set_ai_prompt(db, text)
+    return {"status": "ok"}
+
+
+@router.get("/domain-prompts")
+def read_domain_prompts(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_platform_admin)],
+) -> dict:
+    return {"items": list_domain_prompts(db)}
+
+
+@router.put("/domain-prompts/{domain}")
+def update_domain_prompt(
+    domain: str,
+    body: DomainPromptBody,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_platform_admin)],
+) -> dict[str, str]:
+    if domain not in ALL_ACTION_DOMAINS:
+        raise HTTPException(status_code=404, detail="Unknown domain")
+    text_value = body.prompt.strip()
+    if len(text_value) < 20:
+        raise HTTPException(status_code=400, detail="Prompt is too short")
+    set_domain_prompt(db, domain, text_value)
     return {"status": "ok"}
 
 
