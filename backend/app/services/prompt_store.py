@@ -4,67 +4,69 @@ from sqlalchemy.orm import Session
 
 DEFAULT_DOMAIN_PROMPTS: dict[str, str] = {
     "keyword_hygiene": (
-        "Ты модуль keyword_hygiene для Яндекс Директ. Анализируй только качество ключевых фраз и поисковых запросов. "
-        "Цель: найти фразы для отключения/перезапуска, предложить минус-слова и безопасные действия по чистке семантики."
+        "Роль: Директолог по чистке семантики (keyword_hygiene).\n"
+        "Функция: снижать нецелевой расход и улучшать качество трафика.\n"
+        "Входные данные: Keywords + отчёты CTR/Cost/Clicks/Impressions + Wordstat.\n"
+        "Сопоставление API -> action:\n"
+        "- keywords.get(Id, Keyword, Status, Bid) + reports(Ctr,Cost) -> suspend_keyword/resume_keyword/set_bid.\n"
+        "- wordstat.top_requests(phrase,shows) -> add_negative_keywords_campaign(keywords[]).\n"
+        "Выходные данные (строго JSON actions):\n"
+        "- suspend_keyword {keyword_id}\n"
+        "- resume_keyword {keyword_id}\n"
+        "- add_negative_keywords_campaign {yandex_campaign_id, keywords[]}\n"
+        "Правила: не выходить за риск-лимиты, не дублировать минус-слова."
     ),
     "bid_optimization": (
-        "Ты модуль bid_optimization для Яндекс Директ. Анализируй только ставки и эффективность по ключам/сегментам. "
-        "Цель: дать аккуратные рекомендации bid_up/bid_down в рамках риск-ограничений."
+        "Роль: Директолог по управлению ставками (bid_optimization).\n"
+        "Функция: корректировать ставки для роста эффективности.\n"
+        "Входные данные: keywords.get(Bid,Id,Status) + reports(Ctr,Cost,Clicks,Impressions).\n"
+        "Сопоставление API -> action:\n"
+        "- Bid + Ctr/Cost -> set_bid {keyword_id,bid_rub}.\n"
+        "Выходные данные (строго JSON actions):\n"
+        "- set_bid {keyword_id, bid_rub}\n"
+        "Правила: шаг изменения умеренный, учитывать доменные и глобальные лимиты."
     ),
     "budget_guard": (
-        "Ты модуль budget_guard для Яндекс Директ. Анализируй только расход и лимиты. "
-        "Цель: предотвращать перерасход, предлагать emergency-паузы и изменения дневного бюджета."
+        "Роль: Директолог по бюджетным ограничениям (budget_guard).\n"
+        "Функция: предотвращать перерасход и аварийные потери бюджета.\n"
+        "Входные данные: campaign stats (Cost/Clicks) + лимиты tenant/domain.\n"
+        "Сопоставление API -> action:\n"
+        "- spend/click trend -> suspend_campaign {yandex_campaign_id}\n"
+        "- лимиты -> set_campaign_daily_budget {yandex_campaign_id, amount_rub}\n"
+        "Выходные данные (строго JSON actions):\n"
+        "- suspend_campaign {yandex_campaign_id}\n"
+        "- set_campaign_daily_budget {yandex_campaign_id, amount_rub}"
     ),
     "ad_rotation": (
-        "Ты модуль ad_rotation для Яндекс Директ. Анализируй только эффективность объявлений и креативов. "
-        "Цель: пауза слабых объявлений, приоритезация сильных, предложения по ротации."
+        "Роль: Директолог по креативам и объявлениям (ad_rotation).\n"
+        "Функция: отключать слабые объявления и возвращать перспективные.\n"
+        "Входные данные: ads.get(Id,State,Status) + ad reports(Clicks,Impressions,Cost).\n"
+        "Сопоставление API -> action:\n"
+        "- low CTR при достаточных показах -> suspend_ad {ad_id}\n"
+        "- улучшение/ре-тест -> resume_ad {ad_id}\n"
+        "Выходные данные (строго JSON actions):\n"
+        "- suspend_ad {ad_id}\n"
+        "- resume_ad {ad_id}"
     ),
     "retargeting_tuning": (
-        "Ты модуль retargeting_tuning для Яндекс Директ. Анализируй только аудитории/ретаргетинг. "
-        "Цель: корректировки ставок по аудиториям и улучшение охвата ретаргетинга."
+        "Роль: Директолог по аудиториям/ретаргетингу (retargeting_tuning).\n"
+        "Функция: улучшать перформанс по аудиториям через корректировки.\n"
+        "Входные данные: audienceTargets + bidmodifiers + retargetingLists.\n"
+        "Сопоставление API -> action:\n"
+        "- качество аудитории/конверсии -> update_audience_bid_modifier {audience_target_id,bid_modifier_percent}\n"
+        "Выходные данные (строго JSON actions):\n"
+        "- update_audience_bid_modifier {audience_target_id, bid_modifier_percent}"
     ),
     "anomaly_watchdog": (
-        "Ты модуль anomaly_watchdog для Яндекс Директ. Анализируй только аномалии метрик. "
-        "Цель: быстрое выявление аварийных ситуаций и безопасные защитные действия."
+        "Роль: Директолог-контролёр аномалий (anomaly_watchdog).\n"
+        "Функция: быстрое обнаружение аварийных отклонений и защитные действия.\n"
+        "Входные данные: последние campaign stats + changes.checkCampaigns (с watermark).\n"
+        "Сопоставление API -> action:\n"
+        "- резкий рост расхода + падение эффективности -> suspend_campaign {yandex_campaign_id}\n"
+        "Выходные данные (строго JSON actions):\n"
+        "- suspend_campaign {yandex_campaign_id}"
     ),
 }
-
-
-def get_ai_prompt(db: Session) -> str:
-    row = db.execute(text("SELECT value FROM app_settings WHERE key = 'ai_agent_prompt'")).fetchone()
-    if row and row[0]:
-        return str(row[0])
-    return (
-        "Ты senior PPC-специалист по Яндекс Директ. Анализируй статистику строго по данным, "
-        "не придумывай факты. Отвечай на русском. Возвращай ТОЛЬКО JSON-массив объектов "
-        "{kind,title,body,payload}, без markdown и без пояснений вне JSON. "
-        "Допустимые kind: general, keyword, ad, bid, budget. "
-        "Payload contract: payload всегда объект. "
-        "Для kind=keyword обязательны payload.action (suspend|resume|bid_up|bid_down|none) "
-        "и payload.keyword_id (число или null). "
-        "Для kind=ad обязательны payload.action (pause_ad|resume_ad|none) и payload.ad_id (число или null). "
-        "Для kind=bid обязательны payload.action (bid_up|bid_down|none), payload.keyword_id (число или null), "
-        "payload.percent (число 0..100 или null). "
-        "Для kind=budget обязательны payload.action (budget_up|budget_down|none), payload.amount (число или null), "
-        "payload.period (daily|weekly|monthly|null). "
-        "Для kind=general используй payload.action=none и payload.note (строка). "
-        "Если данных недостаточно, верни массив с одним объектом kind=general,title='Анализ', "
-        "body с кратким выводом и payload={action:'none',note:'недостаточно данных'}."
-    )
-
-
-def set_ai_prompt(db: Session, prompt: str) -> None:
-    db.execute(
-        text(
-            """
-INSERT INTO app_settings(key, value, updated_at)
-VALUES ('ai_agent_prompt', :value, NOW())
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-"""
-        ),
-        {"value": prompt},
-    )
-    db.commit()
 
 
 def get_domain_prompt(db: Session, domain: str) -> str:
@@ -74,7 +76,7 @@ def get_domain_prompt(db: Session, domain: str) -> str:
     ).fetchone()
     if row and row[0]:
         return str(row[0])
-    return DEFAULT_DOMAIN_PROMPTS.get(domain, get_ai_prompt(db))
+    return DEFAULT_DOMAIN_PROMPTS.get(domain, "")
 
 
 def list_domain_prompts(db: Session) -> list[dict[str, str]]:
@@ -94,3 +96,11 @@ ON CONFLICT (domain) DO UPDATE SET prompt = EXCLUDED.prompt, updated_at = NOW()
         {"d": domain, "p": prompt},
     )
     db.commit()
+
+
+def reset_domain_prompt(db: Session, domain: str) -> bool:
+    default_prompt = DEFAULT_DOMAIN_PROMPTS.get(domain, "").strip()
+    if not default_prompt:
+        return False
+    set_domain_prompt(db, domain, default_prompt)
+    return True

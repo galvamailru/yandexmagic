@@ -12,14 +12,10 @@ from app.deps import require_platform_admin
 from app.models.public import Tenant, TenantMembership, User
 from app.repositories import tenant_queries as tq
 from app.schemas.common import AdminTenantOut, AgentLogOut, TokenResponse
-from app.services.prompt_store import get_ai_prompt, list_domain_prompts, set_ai_prompt, set_domain_prompt
+from app.services.prompt_store import list_domain_prompts, reset_domain_prompt, set_domain_prompt
 from app.services.agent_domains import ALL_ACTION_DOMAINS
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-
-
-class PromptBody(BaseModel):
-    prompt: str
 
 
 class DomainPromptBody(BaseModel):
@@ -134,27 +130,6 @@ def all_agent_logs(
     return {"items": [x.model_dump() for x in items], "total": total, "page": p, "limit": lim}
 
 
-@router.get("/ai-prompt")
-def read_ai_prompt(
-    db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_platform_admin)],
-) -> dict[str, str]:
-    return {"prompt": get_ai_prompt(db)}
-
-
-@router.put("/ai-prompt")
-def update_ai_prompt(
-    body: PromptBody,
-    db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_platform_admin)],
-) -> dict[str, str]:
-    text = body.prompt.strip()
-    if len(text) < 20:
-        raise HTTPException(status_code=400, detail="Prompt is too short")
-    set_ai_prompt(db, text)
-    return {"status": "ok"}
-
-
 @router.get("/domain-prompts")
 def read_domain_prompts(
     db: Annotated[Session, Depends(get_db)],
@@ -176,6 +151,20 @@ def update_domain_prompt(
     if len(text_value) < 20:
         raise HTTPException(status_code=400, detail="Prompt is too short")
     set_domain_prompt(db, domain, text_value)
+    return {"status": "ok"}
+
+
+@router.post("/domain-prompts/{domain}/reset")
+def reset_domain_prompt_to_default(
+    domain: str,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_platform_admin)],
+) -> dict[str, str]:
+    if domain not in ALL_ACTION_DOMAINS:
+        raise HTTPException(status_code=404, detail="Unknown domain")
+    ok = reset_domain_prompt(db, domain)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Default prompt not found for domain")
     return {"status": "ok"}
 
 

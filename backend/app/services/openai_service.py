@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.services.domain_action_contracts import contract_hint, validate_domain_actions
-from app.services.prompt_store import get_ai_prompt, get_domain_prompt
+from app.services.prompt_store import get_domain_prompt
 from app.services.recommendation_normalizer import parse_structured_recommendations, sanitize_unstructured_body
 
 settings = get_settings()
@@ -30,19 +30,11 @@ def generate_recommendations(stats_summary: str, db: Session | None = None, doma
                 "payload": {"keyword_id": 0},
             }
         ]
-    system_prompt = (
-        get_domain_prompt(db, domain) if db is not None and domain else get_ai_prompt(db) if db is not None else (
-        "Ты эксперт по Яндекс Директ. Ответь ТОЛЬКО JSON-массивом объектов "
-        "{kind,title,body,payload} без markdown и текста вне JSON. "
-        "Payload contract обязателен: payload всегда объект; "
-        "для kind=keyword укажи action и keyword_id; "
-        "для kind=ad укажи action и ad_id; "
-        "для kind=bid укажи action, keyword_id, percent; "
-        "для kind=budget укажи action, amount, period; "
-        "для kind=general укажи action=none и note. "
-        "Если данных недостаточно, верни один объект с title='Анализ'."
-        )
-    )
+    if not db or not domain:
+        return []
+    system_prompt = get_domain_prompt(db, domain).strip()
+    if not system_prompt:
+        return []
     resp = _client().chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=[
@@ -103,7 +95,11 @@ def generate_domain_actions(
 ) -> list[dict[str, Any]]:
     if not (settings.LLM_API_KEY or settings.OPENAI_API_KEY):
         return []
-    base_prompt = get_domain_prompt(db, domain) if db is not None else "Ты эксперт по Яндекс Директ."
+    if db is None:
+        return []
+    base_prompt = get_domain_prompt(db, domain).strip()
+    if not base_prompt:
+        return []
     system_prompt = f"{base_prompt}\n\n{contract_hint(domain)}"
     try:
         resp = _client().chat.completions.create(

@@ -22,15 +22,64 @@ type DomainSetting = {
 };
 type Paged<T> = { items: T[]; total: number; page: number; limit: number };
 
+const DOMAIN_META: Record<string, { title: string; role: string; io: string[] }> = {
+  keyword_hygiene: {
+    title: "Чистка фраз и минус-слов",
+    role: "Роль: фильтрует нецелевой спрос и снижает мусорный расход.",
+    io: [
+      "Вход: Keywords + Reports + Wordstat",
+      "Выход: suspend/resume keyword, add_negative_keywords_campaign",
+    ],
+  },
+  bid_optimization: {
+    title: "Оптимизация ставок",
+    role: "Роль: повышает/снижает ставки для баланса трафика и CPA/ROMI.",
+    io: [
+      "Вход: Bid + CTR/Cost/Clicks/Impressions",
+      "Выход: set_bid",
+    ],
+  },
+  budget_guard: {
+    title: "Контроль бюджета",
+    role: "Роль: защищает от перерасхода и аварийных потерь.",
+    io: [
+      "Вход: дневной/недельный расход, лимиты домена",
+      "Выход: suspend_campaign, set_campaign_daily_budget",
+    ],
+  },
+  ad_rotation: {
+    title: "Ротация объявлений",
+    role: "Роль: отключает слабые креативы и возвращает эффективные.",
+    io: [
+      "Вход: Ads + метрики объявлений",
+      "Выход: suspend_ad, resume_ad",
+    ],
+  },
+  retargeting_tuning: {
+    title: "Тюнинг ретаргетинга",
+    role: "Роль: корректирует ставки по аудиториям/сегментам.",
+    io: [
+      "Вход: AudienceTargets + BidModifiers + RetargetingLists",
+      "Выход: update_audience_bid_modifier",
+    ],
+  },
+  anomaly_watchdog: {
+    title: "Контроль аномалий",
+    role: "Роль: детектирует аварийные всплески и защищает кампании.",
+    io: [
+      "Вход: последние stats + changes_check (watermark)",
+      "Выход: suspend_campaign",
+    ],
+  },
+};
+
 export default function AdminPage() {
   const router = useRouter();
   const [rows, setRows] = useState<Tenant[]>([]);
   const [logs, setLogs] = useState<{ message: string; level: string; created_at: string | null }[]>([]);
   const [runs, setRuns] = useState<JobRun[]>([]);
-  const [prompt, setPrompt] = useState("");
   const [domainPrompts, setDomainPrompts] = useState<DomainPrompt[]>([]);
   const [domainSettings, setDomainSettings] = useState<DomainSetting[]>([]);
-  const [savingPrompt, setSavingPrompt] = useState(false);
   const [savingDomain, setSavingDomain] = useState<string>("");
   const [roleForm, setRoleForm] = useState({ tenantId: "", userId: "", role: "manager" });
   const [savingRole, setSavingRole] = useState(false);
@@ -66,8 +115,6 @@ export default function AdminPage() {
         const jr = await apiFetch<Paged<JobRun>>(`/api/admin/job-runs?page=${runPage}&limit=${pageSize}`);
         setRuns(jr.items);
         setRunTotal(jr.total);
-        const p = await apiFetch<{ prompt: string }>("/api/admin/ai-prompt");
-        setPrompt(p.prompt || "");
         const dp = await apiFetch<{ items: DomainPrompt[] }>("/api/admin/domain-prompts");
         setDomainPrompts(dp.items || []);
         const ds = await apiFetch<DomainSetting[]>("/api/campaigns/domain-settings");
@@ -93,21 +140,6 @@ export default function AdminPage() {
     setTenantTotal(t.total);
   }
 
-  async function savePrompt() {
-    setSavingPrompt(true);
-    try {
-      await apiFetch("/api/admin/ai-prompt", {
-        method: "PUT",
-        body: JSON.stringify({ prompt }),
-      });
-      toast.success("Промпт сохранён");
-    } catch (e) {
-      toast.error(String(e));
-    } finally {
-      setSavingPrompt(false);
-    }
-  }
-
   async function saveDomainPrompt(domain: string, promptText: string) {
     setSavingDomain(domain);
     try {
@@ -116,6 +148,20 @@ export default function AdminPage() {
         body: JSON.stringify({ prompt: promptText }),
       });
       toast.success(`Промпт домена ${domain} сохранён`);
+      const dp = await apiFetch<{ items: DomainPrompt[] }>("/api/admin/domain-prompts");
+      setDomainPrompts(dp.items || []);
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setSavingDomain("");
+    }
+  }
+
+  async function resetDomainPrompt(domain: string) {
+    setSavingDomain(domain);
+    try {
+      await apiFetch(`/api/admin/domain-prompts/${domain}/reset`, { method: "POST" });
+      toast.success(`Промпт домена ${domain} сброшен к шаблону`);
       const dp = await apiFetch<{ items: DomainPrompt[] }>("/api/admin/domain-prompts");
       setDomainPrompts(dp.items || []);
     } catch (e) {
@@ -171,7 +217,7 @@ export default function AdminPage() {
               Логи
             </Button>
             <Button variant={tab === "prompt" ? "default" : "outline"} size="sm" onClick={() => setTab("prompt")}>
-              Промпт AI
+              Доменные промпты
             </Button>
           </CardContent>
         </Card>
@@ -259,19 +305,6 @@ export default function AdminPage() {
               <CardTitle>Промпты AI-агента</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="text-sm font-medium">Общий промпт (fallback)</div>
-              <textarea
-                className="w-full min-h-52 rounded-md border border-[hsl(var(--border))] p-3 text-sm"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Введите system prompt для агента..."
-              />
-              <div className="flex gap-2">
-                <Button onClick={savePrompt} disabled={savingPrompt}>
-                  {savingPrompt ? "Сохраняем..." : "Сохранить промпт"}
-                </Button>
-              </div>
-              <div className="pt-4 border-t border-[hsl(var(--border))]" />
               <div className="text-sm font-medium">Расписание и лимиты доменов</div>
               <div className="overflow-x-auto rounded-lg border border-[hsl(var(--border))]">
                 <table className="w-full text-sm">
@@ -310,6 +343,13 @@ export default function AdminPage() {
                 {domainPrompts.map((dp) => (
                   <div key={dp.domain} className="rounded-lg border border-[hsl(var(--border))] p-3 space-y-2">
                     <div className="text-xs uppercase tracking-wide text-[hsl(var(--muted-foreground))]">{dp.domain}</div>
+                    <div className="text-sm font-medium">{DOMAIN_META[dp.domain]?.title || dp.domain}</div>
+                    <div className="text-xs text-[hsl(var(--muted-foreground))]">{DOMAIN_META[dp.domain]?.role || ""}</div>
+                    <ul className="text-xs text-[hsl(var(--muted-foreground))] list-disc pl-5 space-y-1">
+                      {(DOMAIN_META[dp.domain]?.io || []).map((line) => (
+                        <li key={`${dp.domain}-${line}`}>{line}</li>
+                      ))}
+                    </ul>
                     <textarea
                       className="w-full min-h-32 rounded-md border border-[hsl(var(--border))] p-3 text-sm"
                       value={dp.prompt}
@@ -321,6 +361,13 @@ export default function AdminPage() {
                     />
                     <Button onClick={() => saveDomainPrompt(dp.domain, dp.prompt)} disabled={savingDomain === dp.domain}>
                       {savingDomain === dp.domain ? "Сохраняем..." : `Сохранить ${dp.domain}`}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => resetDomainPrompt(dp.domain)}
+                      disabled={savingDomain === dp.domain}
+                    >
+                      {savingDomain === dp.domain ? "Сбрасываем..." : "Сбросить к шаблону"}
                     </Button>
                   </div>
                 ))}
