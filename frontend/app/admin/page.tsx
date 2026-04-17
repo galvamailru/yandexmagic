@@ -12,6 +12,14 @@ import { jobStatusBadgeClass, logLevelBadgeClass, tenantBlockedBadgeClass } from
 
 type Tenant = { id: string; name: string; schema_name: string; is_blocked: boolean };
 type JobRun = { id: string; name: string; status: string; started_at: string | null; duration_ms: number | null; details: Record<string, unknown> };
+type DomainPrompt = { domain: string; prompt: string };
+type DomainSetting = {
+  domain: string;
+  enabled: boolean;
+  max_changes_per_run: number;
+  hard_weekly_limit_rub: number;
+  schedule_hint: string;
+};
 type Paged<T> = { items: T[]; total: number; page: number; limit: number };
 
 export default function AdminPage() {
@@ -20,7 +28,10 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<{ message: string; level: string; created_at: string | null }[]>([]);
   const [runs, setRuns] = useState<JobRun[]>([]);
   const [prompt, setPrompt] = useState("");
+  const [domainPrompts, setDomainPrompts] = useState<DomainPrompt[]>([]);
+  const [domainSettings, setDomainSettings] = useState<DomainSetting[]>([]);
   const [savingPrompt, setSavingPrompt] = useState(false);
+  const [savingDomain, setSavingDomain] = useState<string>("");
   const [roleForm, setRoleForm] = useState({ tenantId: "", userId: "", role: "manager" });
   const [savingRole, setSavingRole] = useState(false);
   const [tab, setTab] = useState<"tenants" | "jobs" | "logs" | "prompt">("tenants");
@@ -57,6 +68,10 @@ export default function AdminPage() {
         setRunTotal(jr.total);
         const p = await apiFetch<{ prompt: string }>("/api/admin/ai-prompt");
         setPrompt(p.prompt || "");
+        const dp = await apiFetch<{ items: DomainPrompt[] }>("/api/admin/domain-prompts");
+        setDomainPrompts(dp.items || []);
+        const ds = await apiFetch<DomainSetting[]>("/api/campaigns/domain-settings");
+        setDomainSettings(ds || []);
       } catch (e) {
         toast.error(String(e));
       }
@@ -90,6 +105,23 @@ export default function AdminPage() {
       toast.error(String(e));
     } finally {
       setSavingPrompt(false);
+    }
+  }
+
+  async function saveDomainPrompt(domain: string, promptText: string) {
+    setSavingDomain(domain);
+    try {
+      await apiFetch(`/api/admin/domain-prompts/${domain}`, {
+        method: "PUT",
+        body: JSON.stringify({ prompt: promptText }),
+      });
+      toast.success(`Промпт домена ${domain} сохранён`);
+      const dp = await apiFetch<{ items: DomainPrompt[] }>("/api/admin/domain-prompts");
+      setDomainPrompts(dp.items || []);
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setSavingDomain("");
     }
   }
 
@@ -224,9 +256,10 @@ export default function AdminPage() {
         {tab === "prompt" && (
           <Card>
             <CardHeader>
-              <CardTitle>Промпт AI-агента (DeepSeek)</CardTitle>
+              <CardTitle>Промпты AI-агента</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="text-sm font-medium">Общий промпт (fallback)</div>
               <textarea
                 className="w-full min-h-52 rounded-md border border-[hsl(var(--border))] p-3 text-sm"
                 value={prompt}
@@ -237,6 +270,65 @@ export default function AdminPage() {
                 <Button onClick={savePrompt} disabled={savingPrompt}>
                   {savingPrompt ? "Сохраняем..." : "Сохранить промпт"}
                 </Button>
+              </div>
+              <div className="pt-4 border-t border-[hsl(var(--border))]" />
+              <div className="text-sm font-medium">Расписание и лимиты доменов</div>
+              <div className="overflow-x-auto rounded-lg border border-[hsl(var(--border))]">
+                <table className="w-full text-sm">
+                  <thead className="bg-[hsl(var(--muted))]">
+                    <tr className="text-left">
+                      <th className="p-2">Домен</th>
+                      <th className="p-2">Включен</th>
+                      <th className="p-2">Расписание</th>
+                      <th className="p-2">Лимит изменений/запуск</th>
+                      <th className="p-2">Недельный лимит (RUB)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {domainSettings.map((s) => (
+                      <tr key={s.domain} className="border-t border-[hsl(var(--border))]">
+                        <td className="p-2 font-mono text-xs">{s.domain}</td>
+                        <td className="p-2">{s.enabled ? "Да" : "Нет"}</td>
+                        <td className="p-2">{s.schedule_hint || "—"}</td>
+                        <td className="p-2">{s.max_changes_per_run}</td>
+                        <td className="p-2">{s.hard_weekly_limit_rub}</td>
+                      </tr>
+                    ))}
+                    {!domainSettings.length && (
+                      <tr>
+                        <td colSpan={5} className="p-3 text-[hsl(var(--muted-foreground))]">
+                          Нет данных domain-settings (проверь контекст tenant и backend API).
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="pt-4 border-t border-[hsl(var(--border))]" />
+              <div className="text-sm font-medium">Промпты доменов</div>
+              <div className="space-y-4">
+                {domainPrompts.map((dp) => (
+                  <div key={dp.domain} className="rounded-lg border border-[hsl(var(--border))] p-3 space-y-2">
+                    <div className="text-xs uppercase tracking-wide text-[hsl(var(--muted-foreground))]">{dp.domain}</div>
+                    <textarea
+                      className="w-full min-h-32 rounded-md border border-[hsl(var(--border))] p-3 text-sm"
+                      value={dp.prompt}
+                      onChange={(e) =>
+                        setDomainPrompts((prev) =>
+                          prev.map((x) => (x.domain === dp.domain ? { ...x, prompt: e.target.value } : x))
+                        )
+                      }
+                    />
+                    <Button onClick={() => saveDomainPrompt(dp.domain, dp.prompt)} disabled={savingDomain === dp.domain}>
+                      {savingDomain === dp.domain ? "Сохраняем..." : `Сохранить ${dp.domain}`}
+                    </Button>
+                  </div>
+                ))}
+                {!domainPrompts.length && (
+                  <div className="text-sm text-[hsl(var(--muted-foreground))]">
+                    Доменные промпты не загружены.
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
